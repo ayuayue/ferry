@@ -70,10 +70,8 @@ export function TitleBar({
     <header className="titlebar">
       <div className="brand">
         <span className="mark" aria-hidden="true">
-          <svg viewBox="0 0 18 18" fill="currentColor">
-            <rect x="5" y="5.2" width="5.8" height="3.4" rx="0.9" />
-            <rect x="11.3" y="6.2" width="1.7" height="2.4" rx="0.4" />
-            <path d="M2.8 8.6h12.4l-1.8 4.2H4.6z" />
+          <svg viewBox="0 0 64 64" fill="currentColor" aria-hidden="true">
+            <path d="M15 8h40l-8 10H20v9h25l-8 10H20v14a5 5 0 0 1-10 0V13a5 5 0 0 1 5-5Z" />
           </svg>
         </span>
         Ferry

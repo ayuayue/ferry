@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 64 64">
+  <title>Ferry app icon</title>
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="#c96442"/>
+  <path fill="#faf9f5" d="M15 8h40l-8 10H20v9h25l-8 10H20v14a5 5 0 0 1-10 0V13a5 5 0 0 1 5-5Z"/>
+</svg>
