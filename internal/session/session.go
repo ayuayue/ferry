@@ -396,14 +396,18 @@ func (s *Session) engine(fn func(*pbproto.Client) error) error {
 }
 
 // ClearEvents empties the activity ring and asks the engine to drop its own
-// connection history.
-func (s *Session) ClearEvents() error {
+// connection history, returning the fresh (empty) view so the UI can reset its
+// own event buffer and delta cursor in one step.
+func (s *Session) ClearEvents() (View, error) {
 	s.mu.Lock()
 	s.events = nil
 	s.seq = 0
 	s.stats = Stats{}
 	s.mu.Unlock()
-	return s.engine(func(c *pbproto.Client) error { return c.ClearConnLogs() })
+	if err := s.engine(func(c *pbproto.Client) error { return c.ClearConnLogs() }); err != nil {
+		return s.Snapshot(0), err
+	}
+	return s.Snapshot(0), nil
 }
 
 // ---- proxies ----

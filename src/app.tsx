@@ -119,6 +119,18 @@ export default function App() {
     }
   }, [toast]);
 
+  const clearEvents = useCallback(async () => {
+    try {
+      const v = await api.clearEvents();
+      since.current = v.seq;
+      setEvents([]);
+      setView(v);
+      toast(true, "日志已清空");
+    } catch (e) {
+      toast(false, "清空失败", String(e));
+    }
+  }, [toast]);
+
   const connectNow = useCallback(
     async (quiet = false) => {
       try {
@@ -266,6 +278,7 @@ export default function App() {
               onMenu={setMenu}
               onToast={toast}
               onNewRule={quickRule}
+              onClear={() => void clearEvents()}
             />
           )}
           {page === "rules" && (

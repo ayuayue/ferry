@@ -376,7 +376,7 @@ export function ConnectionsPage({
           <div className="sub">按进程聚合的活动会话 · 右键进程或连接可一键转成规则</div>
         </div>
         <div className="right">
-          <div className="search" style={{ width: 230 }}>
+          <div className="search">
             <Search />
             <input
               className="input"
@@ -616,6 +616,7 @@ export function LiveLogPage({
   onMenu,
   onToast,
   onNewRule,
+  onClear,
 }: {
   view: View;
   events: LogEvent[];
@@ -625,6 +626,7 @@ export function LiveLogPage({
   onMenu: (m: MenuState) => void;
   onToast: Toast;
   onNewRule: NewRule;
+  onClear: () => void;
 }) {
   const [q, setQ] = useState("");
   const [action, setAction] = useState<"all" | RuleAction>("all");
@@ -738,7 +740,7 @@ export function LiveLogPage({
             <span className={view.connected ? "pulse" : "dot idle"} />
             {view.connected ? "实时" : "离线"}
           </div>
-          <button className="btn" onClick={() => api.clearEvents()}>
+          <button className="btn" onClick={onClear}>
             <Trash2 size={14} /> 清空
           </button>
         </div>
@@ -1081,7 +1083,7 @@ export function RulesPage({
           <div className="sub">自上而下匹配，命中第一条即生效；拖动排序立即落盘</div>
         </div>
         <div className="right">
-          <div className="search" style={{ width: 220 }}>
+          <div className="search">
             <Search />
             <input
               className="input"

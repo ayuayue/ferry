@@ -176,8 +176,8 @@ export interface View {
  * and runs on its own goroutine.
  */
 export const API = {
-  /** ClearEvents empties the activity list. */
-  clearEvents(): Promise<void> {
+  /** ClearEvents empties the activity list and returns the reset view. */
+  clearEvents(): Promise<View> {
     return call("API.ClearEvents");
   },
   /** Connect dials the engine service and replays the stored rules. */

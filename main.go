@@ -66,8 +66,8 @@ func (a *API) SetTrafficLog(on bool) error { return a.sess.SetTrafficLog(on) }
 // SetLogAll logs every connection instead of collapsing repeats.
 func (a *API) SetLogAll(on bool) error { return a.sess.SetLogAll(on) }
 
-// ClearEvents empties the activity list.
-func (a *API) ClearEvents() error { return a.sess.ClearEvents() }
+// ClearEvents empties the activity list and returns the reset view.
+func (a *API) ClearEvents() (session.View, error) { return a.sess.ClearEvents() }
 
 // SaveProxy adds or updates a proxy configuration.
 func (a *API) SaveProxy(p model.Proxy) (model.Proxy, error) { return a.sess.SaveProxy(p) }
