@@ -129,6 +129,7 @@ export interface StatusView {
   settingsPath: string;
   engineDir: string;
   engineReady: boolean;
+  autoStart: boolean;
   version: string;
   platform: string;
 }
@@ -144,9 +145,9 @@ export interface TestRun {
 
 export interface UIState {
   page: string;
+  theme: string;
   showLogs: boolean;
   compact: boolean;
-  lastMock: boolean;
 }
 
 export interface View {
@@ -165,6 +166,7 @@ export interface View {
   test?: TestRun;
   stats: Stats;
   started: string;
+  ui: UIState;
 }
 
 // ---- Services ----
@@ -178,9 +180,9 @@ export const API = {
   clearEvents(): Promise<void> {
     return call("API.ClearEvents");
   },
-  /** Connect dials the engine service, or the built-in mock, and replays rules. */
-  connect(mock: boolean): Promise<void> {
-    return call("API.Connect", mock);
+  /** Connect dials the engine service and replays the stored rules. */
+  connect(): Promise<void> {
+    return call("API.Connect");
   },
   /** DeleteProxy removes a proxy configuration. */
   deleteProxy(key: string): Promise<void> {
@@ -233,9 +235,13 @@ export const API = {
   saveRule(r: Rule, insertAt: number): Promise<Rule> {
     return call("API.SaveRule", r, insertAt);
   },
-  /** SaveUI remembers the last page and toggles. */
+  /** SaveUI remembers the last page, theme and toggles. */
   saveUI(ui: UIState): Promise<void> {
     return call("API.SaveUI", ui);
+  },
+  /** SetAutoStart adds or removes the current user's login item. */
+  setAutoStart(on: boolean): Promise<void> {
+    return call("API.SetAutoStart", on);
   },
   /** SetEnabled pauses or resumes rule matching. */
   setEnabled(on: boolean): Promise<void> {

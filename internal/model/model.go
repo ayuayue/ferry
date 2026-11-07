@@ -18,15 +18,15 @@ import (
 // Proxy is one upstream proxy as the user configured it. EngineID is the ID
 // the engine assigned in the current session (0 while not applied).
 type Proxy struct {
-	Key        string             `json:"key"`
-	Name       string             `json:"name"`
-	Type       pbproto.ProxyType  `json:"type"`
-	IP         string             `json:"ip"`
-	Port       uint16             `json:"port"`
-	User       string             `json:"user,omitempty"`
-	Pass       string             `json:"pass,omitempty"`
-	SendDomain bool               `json:"sendDomain"`
-	EngineID   uint32             `json:"-"`
+	Key        string            `json:"key"`
+	Name       string            `json:"name"`
+	Type       pbproto.ProxyType `json:"type"`
+	IP         string            `json:"ip"`
+	Port       uint16            `json:"port"`
+	User       string            `json:"user,omitempty"`
+	Pass       string            `json:"pass,omitempty"`
+	SendDomain bool              `json:"sendDomain"`
+	EngineID   uint32            `json:"-"`
 }
 
 // Rule is one entry of the ordered rule list. The first enabled rule that
@@ -57,10 +57,10 @@ type EnginePrefs struct {
 
 // UIState is what the window needs to come back the way the user left it.
 type UIState struct {
-	Page      string `json:"page"`
-	ShowLogs  bool   `json:"showLogs"`
-	Compact   bool   `json:"compact"`
-	LastMock  bool   `json:"lastMock"`
+	Page     string `json:"page"`
+	Theme    string `json:"theme"`
+	ShowLogs bool   `json:"showLogs"`
+	Compact  bool   `json:"compact"`
 }
 
 // Settings is the whole persisted state.
@@ -89,7 +89,7 @@ func Open(path string) (*Store, error) {
 			return nil, err
 		}
 	case errors.Is(err, os.ErrNotExist):
-		st.s = Demo()
+		st.s = initial()
 	default:
 		return nil, err
 	}
@@ -109,6 +109,9 @@ func (st *Store) normalize() {
 	}
 	if st.s.Rules == nil {
 		st.s.Rules = []Rule{}
+	}
+	if st.s.UI.Theme != "dark" {
+		st.s.UI.Theme = "light"
 	}
 	for i := range st.s.Proxies {
 		if st.s.Proxies[i].Key == "" {
@@ -169,29 +172,15 @@ func NewKey() string {
 	return hex.EncodeToString(b[:])
 }
 
-// Demo is the starter profile: two proxies and a rule list that shows off the
-// match semantics (first match wins, catch-all last).
-func Demo() Settings {
-	hk := Proxy{Key: NewKey(), Name: "本地 SOCKS5", Type: pbproto.ProxySOCKS5, IP: "127.0.0.1", Port: 1080, SendDomain: true}
-	corp := Proxy{Key: NewKey(), Name: "公司 HTTP", Type: pbproto.ProxyHTTP, IP: "10.0.0.5", Port: 8080, User: "corp", Pass: "", SendDomain: false}
-	rules := []Rule{
-		{Process: "chrome.exe,msedge.exe", Domains: "*.github.com;github.com", Hosts: "", Ports: "443", Protocol: pbproto.ProtoTCP, Action: pbproto.ActionProxy, ProxyKey: hk.Key, Enabled: true},
-		{Process: "Code.exe", Hosts: "*", Ports: "22;443", Domains: "", Protocol: pbproto.ProtoBoth, Action: pbproto.ActionProxy, ProxyKey: hk.Key, Enabled: true},
-		{Process: "git.exe", Hosts: "*", Ports: "22", Domains: "", Protocol: pbproto.ProtoTCP, Action: pbproto.ActionDirect, Enabled: true},
-		{Process: "steam.exe", Domains: "*.steamcontent.com", Ports: "", Protocol: pbproto.ProtoBoth, Action: pbproto.ActionBlock, Enabled: true},
-		{Process: "*", Hosts: "*", Ports: "*", Domains: "", Protocol: pbproto.ProtoBoth, Action: pbproto.ActionProxy, ProxyKey: corp.Key, Enabled: false},
-	}
-	for i := range rules {
-		rules[i].Key = NewKey()
-		if rules[i].Ports == "" {
-			rules[i].Ports = "*"
-		}
-	}
+// initial is the first-run profile: nothing configured yet. Rules and proxies
+// are added by the user once the engine service is installed, so the app never
+// presents invented hosts as if they were traffic.
+func initial() Settings {
 	return Settings{
 		Version: 1,
-		Proxies: []Proxy{hk, corp},
-		Rules:   rules,
+		Proxies: []Proxy{},
+		Rules:   []Rule{},
 		Engine:  EnginePrefs{Enabled: true},
-		UI:      UIState{Page: "connections", ShowLogs: true},
+		UI:      UIState{Page: "connections", Theme: "light"},
 	}
 }

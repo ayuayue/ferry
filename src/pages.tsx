@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
-  Activity,
+  ArrowDownRight,
   ArrowUpRight,
   Ban,
   Cable,
@@ -37,15 +37,19 @@ import {
   PROXY_NAMES,
   api,
   describeRule,
+  displayHost,
+  eventAction,
   fmtAge,
   fmtBytes,
   fmtTime,
   isIP,
+  matchChipClass,
   type AppStatus,
   type Flow,
   type LogEvent,
   type Proxy,
   type Rule,
+  type RuleAction,
   type RuleTarget,
   type TestRun,
   type View,
@@ -53,364 +57,57 @@ import {
 import { Confirm, RuleEditor, Toggle, type MenuItem, type MenuState } from "./components";
 
 type Toast = (ok: boolean, title: string, detail?: string) => void;
+type NewRule = (targets: RuleTarget[], mode?: "quick" | "custom") => void;
 
-const FLOW_COLS = "14px minmax(130px, 1.1fr) minmax(160px, 1.5fr) 56px minmax(96px, .9fr) minmax(96px, .9fr) 78px 78px 56px";
+// ---------------------------------------------------------------- shared bits
 
-// ---------------------------------------------------------------- connections
+const PROC_COLS = "30px minmax(180px, 1.4fr) 92px 92px 92px 92px 84px";
+const FLOW_COLS = "30px minmax(200px, 1.8fr) 62px minmax(90px, .8fr) minmax(110px, 1fr) 78px 78px 62px";
+const LOG_COLS = "84px 70px minmax(130px, .9fr) minmax(170px, 1.3fr) 58px minmax(120px, 1fr) 74px";
 
-export function ConnectionsPage({
-  view,
-  events,
-  selected,
-  setSelected,
-  logOpen,
-  onLogToggle,
-  onMenu,
-  onToast,
-  onNewRule,
-}: {
-  view: View;
-  events: LogEvent[];
-  selected: number[];
-  setSelected: (v: number[]) => void;
-  logOpen: boolean;
-  onLogToggle: (v: boolean) => void;
-  onMenu: (m: MenuState) => void;
-  onToast: Toast;
-  onNewRule: (targets: RuleTarget[], mode?: "quick" | "custom") => void;
-}) {
-  const [q, setQ] = useState("");
-  const [udpOnly, setUdpOnly] = useState(false);
-  const rows = useMemo(() => filterFlows(view, q, udpOnly), [view.flows, q, udpOnly]);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const virt = useVirtualizer({
-    count: rows.length,
-    getScrollElement: () => scrollRef.current,
-    estimateSize: () => 46,
-    overscan: 14,
-  });
+// iconCache holds data URLs by executable path; the process list is the
+// name -> path map both pages share.
+const iconCache = new Map<string, string>();
+let procPaths: Map<string, string> | null = null;
 
-  const rowsRef = useRef(rows);
-  rowsRef.current = rows;
-  const selectedRef = useRef(selected);
-  selectedRef.current = selected;
+async function loadProcPaths() {
+  if (procPaths) return procPaths;
+  const list = await api.processes();
+  procPaths = new Map(list.map((p) => [p.name.toLowerCase(), p.path]));
+  return procPaths;
+}
 
+function ProcIcon({ name }: { name: string }) {
+  const [src, setSrc] = useState<string>("");
   useEffect(() => {
-    // drop selection of flows that vanished
-    if (!selected.length) return;
-    const alive = new Set(view.flows.map((f) => f.id));
-    const next = selected.filter((id) => alive.has(id));
-    if (next.length !== selected.length) setSelected(next);
-  }, [view.flows, selected, setSelected]);
-
-  const targetsFor = (f: Flow): RuleTarget => ({
-    flowId: f.id,
-    process: f.name,
-    pid: f.pid,
-    host: f.host,
-    port: f.port,
-    udp: f.udp,
-    proxyKey: f.proxyKey,
-    matchedRuleKey: f.ruleKey,
-  });
-
-  const openMenu = (f: Flow, x: number, y: number) => {
-    const cur = selectedRef.current;
-    const ids = cur.includes(f.id) ? cur : [f.id];
-    if (!cur.includes(f.id)) setSelected([f.id]);
-    const flows = rowsRef.current.filter((r) => ids.includes(r.id));
-    const targets = flows.map(targetsFor);
-    const multi = targets.length > 1;
-    const host = f.host;
-    const items: MenuItem[] = [
-      { kind: "label", text: `${f.name || "未知进程"} → ${host || "?"}:${f.port}` },
-      {
-        kind: "item",
-        label: multi ? `建规则（${targets.length} 条连接）` : "建规则：仅此主机",
-        icon: <Zap size={14} />,
-        hint: "此连接",
-        onSelect: () => onNewRule(targets),
-      },
-      {
-        kind: "item",
-        label: `建规则：${f.name || "该进程"} 的所有流量`,
-        icon: <GitBranch size={14} />,
-        hint: "整进程",
-        onSelect: () => onNewRule([{ ...targets[0]!, host: "", port: 0, flowId: 0 }]),
-      },
-    ];
-    if (host && !isIP(host)) {
-      items.push({
-        kind: "item",
-        label: `建规则：所有应用访问 ${rootDomain(host)}`,
-        icon: <Globe size={14} />,
-        onSelect: () =>
-          onNewRule([{ ...targets[0]!, process: "*", port: 0, flowId: 0, host: rootDomain(host) }]),
-      });
+    let live = true;
+    const key = name.toLowerCase();
+    const cached = iconCache.get(key);
+    if (cached) {
+      setSrc(cached);
+      return;
     }
-    items.push(
-      { kind: "sep" },
-      {
-        kind: "item",
-        label: `让 ${host || "此主机"} 直连`,
-        icon: <Route size={14} />,
-        onSelect: async () => {
-          try {
-            await api.rulesFromTargets(
-              [{ ...targets[0]!, process: "*" }],
-              { scope: "host", action: 1, proxyKey: "", ports: "*", localhost: false, moveToTop: false },
-            );
-            onToast(true, "已添加直连规则", host);
-          } catch (e) {
-            onToast(false, "添加失败", String(e));
-          }
-        },
-      },
-      {
-        kind: "item",
-        danger: true,
-        label: `阻断 ${host || "此主机"}`,
-        icon: <Ban size={14} />,
-        onSelect: async () => {
-          try {
-            await api.rulesFromTargets(
-              [{ ...targets[0]!, process: "*" }],
-              { scope: "host", action: 2, proxyKey: "", ports: "*", localhost: false, moveToTop: false },
-            );
-            onToast(true, "已添加阻断规则", host);
-          } catch (e) {
-            onToast(false, "添加失败", String(e));
-          }
-        },
-      },
-      { kind: "sep" },
-      {
-        kind: "item",
-        label: "复制主机名",
-        icon: <Copy size={14} />,
-        onSelect: () => {
-          navigator.clipboard?.writeText(host).catch(() => undefined);
-          onToast(true, "已复制", host);
-        },
-      },
-      {
-        kind: "item",
-        label: "选中所有同进程连接",
-        icon: <Activity size={14} />,
-        onSelect: () =>
-          setSelected(rowsRef.current.filter((r) => r.pid === f.pid).map((r) => r.id)),
-      },
-    );
-    onMenu({ x, y, items, header: <span>连接 #{f.id}</span> });
-  };
-
-  const total = view.stats.events + view.stats.flows;
-
-  return (
-    <>
-      <div className="page-head">
-        <div>
-          <h1>连接</h1>
-          <div className="sub">
-            实时流与拦截明细 · 右键任意连接可一键转成规则
-          </div>
-        </div>
-        <div className="right">
-          <button className="btn" onClick={() => onLogToggle(!logOpen)}>
-            <Activity size={14} />
-            {logOpen ? "隐藏日志" : "查看日志"}
-            {events.length ? <span className="chip muted">{events.length}</span> : null}
-          </button>
-          <button className="btn" onClick={() => api.clearEvents()}>
-            <Trash2 size={14} /> 清空
-          </button>
-        </div>
-      </div>
-
-      <div className="page-body">
-        <div className="kpis">
-          <Kpi icon={<Cable />} label="活动连接" value={String(view.flows.length)} foot={`累计 ${total}`} />
-          <Kpi icon={<ArrowUpRight />} label="上行" value={fmtBytes(view.stats.up)} foot="本次会话" />
-          <Kpi icon={<ArrowUpRight className="down" />} label="下行" value={fmtBytes(view.stats.down)} foot="本次会话" />
-          <Kpi
-            icon={<ShieldCheck />}
-            label="拦截状态"
-            value={view.enabled ? "运行中" : "已暂停"}
-            foot={view.mode === "mock" ? "演示引擎" : view.mode === "service" ? "引擎服务" : "未连接"}
-            tone={view.enabled ? "mint" : "coral"}
-          />
-        </div>
-
-        <div className="card table-card">
-          <div className="toolbar">
-            <div className="search grow">
-              <Search />
-              <input
-                className="input"
-                placeholder="筛选进程、主机、端口…"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-              />
-            </div>
-            <button
-              className={clsx("btn sm", udpOnly && "active")}
-              onClick={() => setUdpOnly(!udpOnly)}
-            >
-              <Route size={13} /> 只看 UDP
-            </button>
-            <div className="live-strip">
-              <span className={view.connected ? "pulse" : "dot"} />
-              {view.connected ? "实时" : "离线"}
-            </div>
-            <span className="num tip">{rows.length} 行</span>
-          </div>
-
-          {selected.length > 0 && (
-            <div className="selbar">
-              <b>已选 {selected.length} 条</b>
-              <button
-                className="btn sm primary"
-                onClick={() => {
-                  const flows = rows.filter((r) => selected.includes(r.id));
-                  onNewRule(flows.map(targetsFor));
-                }}
-              >
-                <Zap size={13} /> 生成规则
-              </button>
-              <button
-                className="btn sm"
-                onClick={() => {
-                  const flows = rows.filter((r) => selected.includes(r.id));
-                  const ps = Array.from(new Set(flows.map((f) => f.name).filter(Boolean)));
-                  onNewRule(
-                    ps.map((p) => ({
-                      flowId: 0,
-                      process: p,
-                      pid: 0,
-                      host: "",
-                      port: 0,
-                      udp: false,
-                      proxyKey: "",
-                      matchedRuleKey: "",
-                    })),
-                  );
-                }}
-              >
-                <GitBranch size={13} /> 按进程
-              </button>
-              <button className="btn sm ghost right" onClick={() => setSelected([])}>
-                取消选择
-              </button>
-            </div>
-          )}
-
-          <div className="table-head" style={{ gridTemplateColumns: FLOW_COLS }}>
-            <span />
-            <span>进程</span>
-            <span>目标</span>
-            <span>端口</span>
-            <span>规则</span>
-            <span>代理</span>
-            <span className="right">上行</span>
-            <span className="right">下行</span>
-            <span className="right">时间</span>
-          </div>
-
-          <div className="table-wrap" ref={scrollRef}>
-            {rows.length === 0 && (
-              <div className="empty">
-                {view.connected ? <Search /> : <PlugZap />}
-                <b>{view.connected ? "还没有匹配的连接" : "引擎未连接"}</b>
-                <span>
-                  {view.connected
-                    ? "让应用产生一些流量，或换一个筛选条件。"
-                    : view.mode === "mock"
-                      ? "点击右上角切换引擎，或重新连接。"
-                      : "在设置页安装并启动引擎服务，然后点击“连接”。"}
-                </span>
-              </div>
-            )}
-            {rows.length > 0 && (
-              <div style={{ height: virt.getTotalSize(), position: "relative" }}>
-                {virt.getVirtualItems().map((vi) => {
-                  const f = rows[vi.index]!;
-                  const sel = selected.includes(f.id);
-                  return (
-                    <div
-                      key={f.id}
-                      className={clsx("row", sel && "sel")}
-                      style={{
-                        position: "absolute",
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        height: 46,
-                        transform: `translateY(${vi.start}px)`,
-                        gridTemplateColumns: FLOW_COLS,
-                      }}
-                      onClick={(e) => {
-                        if (e.ctrlKey || e.metaKey) {
-                          setSelected(sel ? selected.filter((x) => x !== f.id) : [...selected, f.id]);
-                        } else setSelected([f.id]);
-                      }}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        openMenu(f, e.clientX, e.clientY);
-                      }}
-                    >
-                      <span className={clsx("dot", !f.udp && "tcp")} />
-                      <div className="proc">
-                        <div className="nm">
-                          {f.name || "未知进程"}
-                          {f.udp ? <span className="badge">UDP</span> : null}
-                        </div>
-                        <div className="pid">PID {f.pid || "—"}</div>
-                      </div>
-                      <div className="target mono" title={f.host}>
-                        {f.host || "—"}
-                        {f.ipv6 ? <span className="badge">v6</span> : null}
-                      </div>
-                      <div className="mono dim">{f.port}</div>
-                      <div>
-                        <span className={clsx("chip", ruleTone(f.ruleId))} title={f.ruleKey}>
-                          {f.ruleKey ? shortKey(f.ruleKey) : f.ruleId ? `#${f.ruleId}` : "默认"}
-                        </span>
-                      </div>
-                      <div>
-                        <span className={clsx("chip", f.proxyId ? "proxy" : "direct")}>
-                          {f.proxyName || (f.proxyId ? `#${f.proxyId}` : "直连")}
-                        </span>
-                      </div>
-                      <div className="num right">{fmtBytes(f.sent)}</div>
-                      <div className="num right">{fmtBytes(f.received)}</div>
-                      <div className="num right dim">{fmtAge(f.ageMs)}</div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          <div className="table-foot">
-            <span className="tip">
-              每秒轮询一次；仅显示走代理的连接，直连与阻断的请求会出现在“日志”里。
-            </span>
-            <span className="right tip">选中多行后右键可批量生成规则</span>
-          </div>
-        </div>
-      </div>
-
-      {logOpen && (
-        <LogDrawer
-          events={events}
-          onClose={() => onLogToggle(false)}
-          onMenu={onMenu}
-          onToast={onToast}
-          onNewRule={onNewRule}
-        />
-      )}
-    </>
-  );
+    void (async () => {
+      try {
+        const paths = await loadProcPaths();
+        const path = paths.get(key);
+        if (!path) return;
+        const icon = await api.icon(path);
+        if (!live || !icon) return;
+        iconCache.set(key, icon);
+        setSrc(icon);
+      } catch {
+        /* the fallback letter is enough */
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [name]);
+  if (!src) {
+    return <span className="proc-ph">{(name || "?").slice(0, 1).toUpperCase()}</span>;
+  }
+  return <img className="proc-ico" src={src} alt="" />;
 }
 
 function Kpi({
@@ -438,196 +135,874 @@ function Kpi({
   );
 }
 
-function filterFlows(view: View, q: string, udpOnly: boolean) {
-  const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
-  return view.flows.filter((f) => {
-    if (udpOnly && !f.udp) return false;
-    if (!terms.length) return true;
-    const hay = `${f.name} ${f.host} ${f.port} ${f.pid} ${f.proxyName}`.toLowerCase();
-    return terms.every((t) => hay.includes(t));
-  });
+// OfflineCard is the one thing both live pages show when the service is not
+// there: a short explanation and the two ways forward.
+function OfflineCard({
+  status,
+  onConnect,
+  onSettings,
+  what,
+}: {
+  status: AppStatus | null;
+  onConnect: () => void;
+  onSettings: () => void;
+  what: string;
+}) {
+  const svc = status?.service;
+  return (
+    <div className="card setup-card">
+      <div className="setup-ico">
+        <PlugZap size={26} />
+      </div>
+      <div className="setup-main">
+        <b>引擎服务未连接</b>
+        <p>
+          {what}由 ProxyBridge 服务产生；服务未安装或未启动时，这里不会有任何数据。
+        </p>
+        <div className="setup-state">
+          <span className={clsx("chip", svc?.running ? "direct" : svc?.installed ? "proxy" : "muted")}>
+            {svc?.running ? "服务运行中" : svc?.installed ? "已安装 · 未运行" : "未安装"}
+          </span>
+          {!status?.engineReady && <span className="chip block">引擎文件缺失</span>}
+          {status?.admin && <span className="chip muted">管理员权限</span>}
+        </div>
+        <div className="row-actions">
+          <button className="btn primary" onClick={onSettings}>
+            <ShieldCheck size={14} /> {svc?.installed ? "打开设置检查服务" : "安装引擎服务"}
+          </button>
+          <button className="btn" onClick={onConnect}>
+            <RefreshCw size={14} /> 重试连接
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
-function ruleTone(id: number) {
-  if (!id) return "muted";
-  return "hit";
+// ---------------------------------------------------------------- connections
+
+interface ProcGroup {
+  key: string;
+  name: string;
+  pids: number[];
+  flows: Flow[];
+  events: LogEvent[];
+  up: number;
+  down: number;
+  last: number;
 }
 
-function shortKey(k: string) {
-  return k.length > 7 ? `#${k.slice(0, 5)}` : `#${k}`;
-}
-
-function rootDomain(host: string) {
-  const parts = host.replace(/^www\./, "").split(".");
-  if (parts.length <= 2) return `*.${host}`;
-  return `*.${parts.slice(-2).join(".")}`;
-}
-
-// ---------------------------------------------------------------- log drawer
-
-function LogDrawer({
+export function ConnectionsPage({
+  view,
   events,
-  onClose,
+  status,
+  onConnect,
+  onSettings,
   onMenu,
   onToast,
   onNewRule,
 }: {
+  view: View;
   events: LogEvent[];
-  onClose: () => void;
+  status: AppStatus | null;
+  onConnect: () => void;
+  onSettings: () => void;
   onMenu: (m: MenuState) => void;
   onToast: Toast;
-  onNewRule: (targets: RuleTarget[], mode?: "quick" | "custom") => void;
+  onNewRule: NewRule;
 }) {
   const [q, setQ] = useState("");
-  const [only, setOnly] = useState<"all" | "conn" | "session">("all");
-  const list = useMemo(() => {
-    const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
-    return events
-      .filter((e) => (only === "all" ? true : only === "conn" ? e.kind === "conn" : e.kind !== "conn"))
-      .filter((e) => {
-        if (!terms.length) return true;
-        const hay = `${e.process} ${e.host} ${e.text} ${e.info} ${e.port}`.toLowerCase();
-        return terms.every((t) => hay.includes(t));
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const groups = useMemo(() => groupByProcess(view.flows, events, q), [view.flows, events, q]);
+
+  const toggle = (key: string) =>
+    setExpanded((cur) => {
+      const next = new Set(cur);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
+  const targetFor = (f: Flow): RuleTarget => ({
+    flowId: f.id,
+    process: f.name,
+    pid: f.pid,
+    host: f.host,
+    port: f.port,
+    udp: f.udp,
+    proxyKey: f.proxyKey,
+    matchedRuleKey: f.ruleKey,
+  });
+
+  const procTarget = (g: ProcGroup): RuleTarget => ({
+    process: g.name === "未知进程" ? "" : g.name,
+    pid: g.pids[0] ?? 0,
+    host: "",
+    port: 0,
+    udp: false,
+    proxyKey: g.flows[0]?.proxyKey ?? "",
+    matchedRuleKey: g.flows[0]?.ruleKey ?? "",
+  });
+
+  const act = async (
+    targets: RuleTarget[],
+    action: RuleAction,
+    label: string,
+    scope: "host" | "process" = "process",
+  ) => {
+    try {
+      await api.rulesFromTargets(targets, {
+        scope,
+        action,
+        proxyKey: "",
+        ports: "*",
+        localhost: false,
+        moveToTop: false,
       });
-  }, [events, q, only]);
+      onToast(true, label, targets.map((t) => t.process || "该进程").join("、"));
+    } catch (e) {
+      onToast(false, "添加失败", String(e));
+    }
+  };
+
+  const openProcMenu = (g: ProcGroup, x: number, y: number) => {
+    const target = procTarget(g);
+    const items: MenuItem[] = [
+      {
+        kind: "item",
+        label: `为 ${g.name} 建规则：走代理`,
+        hint: "整进程",
+        icon: <GitBranch size={14} />,
+        onSelect: () => onNewRule([target]),
+      },
+      {
+        kind: "item",
+        label: `让 ${g.name} 直连`,
+        icon: <Route size={14} />,
+        onSelect: () => void act([target], 1, "已添加直连规则"),
+      },
+      {
+        kind: "item",
+        label: `阻断 ${g.name}`,
+        icon: <Ban size={14} />,
+        danger: true,
+        onSelect: () => void act([target], 2, "已添加阻断规则"),
+      },
+      { kind: "sep" },
+      {
+        kind: "item",
+        label: "只看这个进程",
+        icon: <Search size={14} />,
+        onSelect: () => setQ(g.name),
+      },
+      {
+        kind: "item",
+        label: "复制进程名",
+        icon: <Copy size={14} />,
+        onSelect: () => {
+          navigator.clipboard?.writeText(g.name).catch(() => undefined);
+          onToast(true, "已复制", g.name);
+        },
+      },
+    ];
+    onMenu({ x, y, header: <span>{g.name}</span>, items });
+  };
+
+  const openFlowMenu = (f: Flow, x: number, y: number) => {
+    const target = targetFor(f);
+    const host = f.host || "此主机";
+    const items: MenuItem[] = [
+      {
+        kind: "item",
+        label: "建规则：仅此主机",
+        hint: "此连接",
+        icon: <Zap size={14} />,
+        onSelect: () => onNewRule([target]),
+      },
+      {
+        kind: "item",
+        label: `建规则：${f.name || "该进程"} 的所有流量`,
+        hint: "整进程",
+        icon: <GitBranch size={14} />,
+        onSelect: () => onNewRule([{ ...target, host: "", port: 0, flowId: 0 }]),
+      },
+    ];
+    if (f.host && !isIP(f.host)) {
+      items.push({
+        kind: "item",
+        label: `建规则：所有应用访问 ${rootDomain(f.host)}`,
+        icon: <Globe size={14} />,
+        onSelect: () =>
+          onNewRule([{ ...target, process: "*", port: 0, flowId: 0, host: rootDomain(f.host) }]),
+      });
+    }
+    items.push(
+      { kind: "sep" },
+      {
+        kind: "item",
+        label: `让 ${host} 直连`,
+        icon: <Route size={14} />,
+        onSelect: () => void act([{ ...target, process: "*" }], 1, "已添加直连规则", "host"),
+      },
+      {
+        kind: "item",
+        label: `阻断 ${host}`,
+        icon: <Ban size={14} />,
+        danger: true,
+        onSelect: () => void act([{ ...target, process: "*" }], 2, "已添加阻断规则", "host"),
+      },
+      { kind: "sep" },
+      {
+        kind: "item",
+        label: "复制主机名",
+        icon: <Copy size={14} />,
+        onSelect: () => {
+          navigator.clipboard?.writeText(f.host ?? "").catch(() => undefined);
+          onToast(true, "已复制", f.host);
+        },
+      },
+    );
+    onMenu({ x, y, header: <span>连接 #{f.id}</span>, items });
+  };
+
+  const selectedGroups = groups.filter((g) => picked.has(g.key));
 
   return (
-    <section className="drawer">
-      <div className="drawer-head">
-        <Activity size={15} />
-        <b>实时日志</b>
-        <div className="search" style={{ width: 260, marginLeft: 12 }}>
-          <Search />
-          <input
-            className="input"
-            placeholder="筛选日志"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
+    <>
+      <div className="page-head">
+        <div>
+          <h1>连接</h1>
+          <div className="sub">按进程聚合的活动会话 · 右键进程或连接可一键转成规则</div>
         </div>
-        <div className="seg">
-          {[
-            { k: "all", label: "全部" },
-            { k: "conn", label: "连接" },
-            { k: "session", label: "会话" },
-          ].map((t) => (
-            <button
-              key={t.k}
-              className={clsx(only === t.k && "on")}
-              onClick={() => setOnly(t.k as typeof only)}
-            >
-              {t.label}
-            </button>
-          ))}
+        <div className="right">
+          <div className="search" style={{ width: 230 }}>
+            <Search />
+            <input
+              className="input"
+              placeholder="筛选进程、主机、PID"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+          </div>
+          <div className="live-strip">
+            <span className={view.connected ? "pulse" : "dot idle"} />
+            {view.connected ? "实时" : "离线"}
+          </div>
         </div>
-        <span className="tip right num">{list.length} 条</span>
-        <button className="btn icon ghost sm" onClick={onClose}>
-          <ChevronDown size={16} />
-        </button>
       </div>
-      <div className="drawer-body">
-        {list.length === 0 && (
-          <div className="empty">
-            <Activity />
-            <b>暂无日志</b>
-            <span>连接与引擎事件会实时出现在这里，右键可生成规则。</span>
+
+      <div className="page-body">
+        {!view.connected ? (
+          <OfflineCard
+            status={status}
+            onConnect={onConnect}
+            onSettings={onSettings}
+            what="连接会话"
+          />
+        ) : (
+          <>
+            <div className="kpis">
+              <Kpi icon={<Network />} label="进程" value={String(groups.length)} foot="有流量的应用" />
+              <Kpi
+                icon={<Cable />}
+                label="活动会话"
+                value={String(view.flows.length)}
+                foot={`累计 ${view.stats.flows}`}
+              />
+              <Kpi icon={<ArrowUpRight />} label="上行" value={fmtBytes(view.stats.up)} foot="本次会话" />
+              <Kpi icon={<ArrowDownRight />} label="下行" value={fmtBytes(view.stats.down)} foot="本次会话" />
+            </div>
+
+            <div className="card table-card">
+              {picked.size > 0 && (
+                <div className="selbar">
+                  <b>已选 {picked.size} 个进程</b>
+                  <button
+                    className="btn sm primary"
+                    onClick={() => onNewRule(selectedGroups.map(procTarget))}
+                  >
+                    <Zap size={13} /> 生成整进程规则
+                  </button>
+                  <button className="btn sm ghost right" onClick={() => setPicked(new Set())}>
+                    取消选择
+                  </button>
+                </div>
+              )}
+
+              <div className="table-head" style={{ gridTemplateColumns: PROC_COLS }}>
+                <button
+                  className={clsx("pick", picked.size > 0 && "on")}
+                  title="全选进程"
+                  onClick={() =>
+                    setPicked(picked.size === groups.length ? new Set() : new Set(groups.map((g) => g.key)))
+                  }
+                />
+                <span>进程</span>
+                <span className="right">活动会话</span>
+                <span className="right">请求</span>
+                <span className="right">上行</span>
+                <span className="right">下行</span>
+                <span className="right">最近</span>
+              </div>
+
+              <div className="table-wrap">
+                {groups.length === 0 && (
+                  <div className="empty">
+                    <Search />
+                    <b>还没有匹配的进程</b>
+                    <span>让应用产生一些走代理的流量，或换一个筛选条件。</span>
+                  </div>
+                )}
+                {groups.map((g) => {
+                  const open = expanded.has(g.key);
+                  const sel = picked.has(g.key);
+                  return (
+                    <div key={g.key} className="group">
+                      <div
+                        className={clsx("row proc-row", open && "open", sel && "sel")}
+                        style={{ gridTemplateColumns: PROC_COLS }}
+                        onClick={() => toggle(g.key)}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          openProcMenu(g, e.clientX, e.clientY);
+                        }}
+                      >
+                        <button
+                          className={clsx("pick", sel && "on")}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPicked((cur) => {
+                              const next = new Set(cur);
+                              if (next.has(g.key)) next.delete(g.key);
+                              else next.add(g.key);
+                              return next;
+                            });
+                          }}
+                        />
+                        <div className="proc big">
+                          <ProcIcon name={g.name} />
+                          <div>
+                            <div className="nm">
+                              {g.name}
+                              {g.pids.length > 1 && <span className="badge">{g.pids.length} 实例</span>}
+                            </div>
+                            <div className="pid">
+                              {g.pids.slice(0, 3).map((p) => `PID ${p}`).join(" · ")}
+                              {g.pids.length > 3 ? " …" : ""}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="num right">{g.flows.length || "—"}</div>
+                        <div className="num right dim">{g.events.length || "—"}</div>
+                        <div className="num right">{fmtBytes(g.up)}</div>
+                        <div className="num right">{fmtBytes(g.down)}</div>
+                        <div className="num right dim">{g.last ? ago(g.last) : "—"}</div>
+                      </div>
+
+                      {open && (
+                        <div className="subrows">
+                          {g.flows.length === 0 && (
+                            <div className="subempty">该进程当前没有走代理的会话；请求出现在实时日志里。</div>
+                          )}
+                          {g.flows.map((f) => (
+                            <div
+                              key={f.id}
+                              className="row sub"
+                              style={{ gridTemplateColumns: FLOW_COLS }}
+                              onContextMenu={(e) => {
+                                e.preventDefault();
+                                openFlowMenu(f, e.clientX, e.clientY);
+                              }}
+                            >
+                              <span className={clsx("dot", !f.udp && "tcp")} />
+                              <div className="target mono" title={f.host}>
+                                {f.host || "—"}
+                                {f.ipv6 ? <span className="badge">v6</span> : null}
+                                {f.udp ? <span className="badge">UDP</span> : null}
+                              </div>
+                              <div className="mono dim">{f.port}</div>
+                              <div>
+                                <span className="chip hit" title={f.ruleKey}>
+                                  {f.ruleKey ? shortKey(f.ruleKey) : f.ruleId ? `#${f.ruleId}` : "默认"}
+                                </span>
+                              </div>
+                              <div>
+                                <span className={clsx("chip", f.proxyId ? "proxy" : "direct")}>
+                                  {f.proxyName || (f.proxyId ? `#${f.proxyId}` : "直连")}
+                                </span>
+                              </div>
+                              <div className="num right">{fmtBytes(f.sent)}</div>
+                              <div className="num right">{fmtBytes(f.received)}</div>
+                              <div className="num right dim">{fmtAge(f.ageMs)}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="table-foot">
+                <span className="tip">会话来自引擎的实时流（仅走代理的）；请求数来自连接事件，含直连与阻断。</span>
+                <span className="right tip">
+                  <ChevronDown size={12} /> 点行展开 · 右键建规则
+                </span>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
+function groupByProcess(flows: Flow[], events: LogEvent[], q: string): ProcGroup[] {
+  const map = new Map<string, ProcGroup>();
+  const get = (name: string) => {
+    const key = name || "未知进程";
+    let g = map.get(key);
+    if (!g) {
+      g = { key, name: key, pids: [], flows: [], events: [], up: 0, down: 0, last: 0 };
+      map.set(key, g);
+    }
+    return g;
+  };
+  for (const f of flows) {
+    const g = get(f.name);
+    g.flows.push(f);
+    if (f.pid && !g.pids.includes(f.pid)) g.pids.push(f.pid);
+    g.up += f.sent;
+    g.down += f.received;
+    g.last = Math.max(g.last, Date.now() - f.ageMs);
+  }
+  for (const e of events) {
+    if (e.kind !== "conn") continue;
+    const g = get(e.process ?? "");
+    g.events.push(e);
+    if (e.pid && !g.pids.includes(e.pid)) g.pids.push(e.pid);
+    const t = Date.parse(e.time);
+    if (!Number.isNaN(t)) g.last = Math.max(g.last, t);
+  }
+  const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
+  return Array.from(map.values())
+    .filter((g) => {
+      if (!terms.length) return true;
+      const hay = `${g.name} ${g.pids.join(" ")} ${g.flows.map((f) => f.host).join(" ")}`.toLowerCase();
+      return terms.every((t) => hay.includes(t));
+    })
+    .sort((a, b) => b.flows.length - a.flows.length || b.events.length - a.events.length);
+}
+
+function ago(ms: number) {
+  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+  if (s < 5) return "刚刚";
+  if (s < 60) return `${s}s 前`;
+  if (s < 3600) return `${Math.floor(s / 60)}m 前`;
+  return `${Math.floor(s / 3600)}h 前`;
+}
+
+// ---------------------------------------------------------------- live log
+
+type LiveGroup = "none" | "process" | "host";
+
+export function LiveLogPage({
+  view,
+  events,
+  status,
+  onConnect,
+  onSettings,
+  onMenu,
+  onToast,
+  onNewRule,
+}: {
+  view: View;
+  events: LogEvent[];
+  status: AppStatus | null;
+  onConnect: () => void;
+  onSettings: () => void;
+  onMenu: (m: MenuState) => void;
+  onToast: Toast;
+  onNewRule: NewRule;
+}) {
+  const [q, setQ] = useState("");
+  const [action, setAction] = useState<"all" | RuleAction>("all");
+  const [group, setGroup] = useState<LiveGroup>("none");
+  const [follow, setFollow] = useState(true);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const newest = events[0]?.seq ?? 0;
+
+  const rows = useMemo(
+    () => filterEvents(view, events, q, action),
+    [view, events, q, action],
+  );
+
+  useEffect(() => {
+    if (follow && scrollRef.current) scrollRef.current.scrollTop = 0;
+  }, [follow, newest]);
+
+  const vrows = useMemo(() => (group === "none" ? rows : []), [rows, group]);
+  const virt = useVirtualizer({
+    count: vrows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 40,
+    overscan: 16,
+  });
+
+  const grouped = useMemo(
+    () => (group === "none" ? [] : groupEvents(rows, group, (e) => displayHost(e, view.flows))),
+    [rows, group, view.flows],
+  );
+
+  const targetFor = (e: LogEvent): RuleTarget => ({
+    process: e.process ?? "",
+    pid: e.pid ?? 0,
+    host: displayHost(e, view.flows),
+    port: e.port ?? 0,
+    udp: false,
+    proxyKey: e.proxyKey,
+    matchedRuleKey: e.ruleKey,
+  });
+
+  const openMenu = (e: LogEvent, x: number, y: number) => {
+    const target = targetFor(e);
+    const host = target.host;
+    const items: MenuItem[] = [
+      {
+        kind: "item",
+        label: `为 ${e.process || "该应用"} 建规则`,
+        hint: "进程",
+        icon: <GitBranch size={14} />,
+        onSelect: () => onNewRule([{ ...target, host: "", port: 0 }]),
+      },
+      {
+        kind: "item",
+        label: host ? `为 ${host} 建规则` : "为此连接建规则",
+        icon: <Zap size={14} />,
+        disabled: !host,
+        onSelect: () => onNewRule([target]),
+      },
+    ];
+    if (host && !isIP(host)) {
+      items.push({
+        kind: "item",
+        label: `所有应用访问 ${rootDomain(host)}`,
+        icon: <Globe size={14} />,
+        onSelect: () => onNewRule([{ ...target, process: "*", port: 0, host: rootDomain(host) }]),
+      });
+    }
+    items.push(
+      { kind: "sep" },
+      {
+        kind: "item",
+        label: "复制主机",
+        icon: <Copy size={14} />,
+        disabled: !host,
+        onSelect: () => {
+          navigator.clipboard?.writeText(host).catch(() => undefined);
+          onToast(true, "已复制", host);
+        },
+      },
+      {
+        kind: "item",
+        label: "复制整行",
+        icon: <Copy size={14} />,
+        onSelect: () => {
+          navigator.clipboard?.writeText(e.text || e.info || "").catch(() => undefined);
+          onToast(true, "已复制");
+        },
+      },
+    );
+    onMenu({ x, y, header: <span>{e.kind === "conn" ? "连接事件" : "引擎消息"}</span>, items });
+  };
+
+  return (
+    <>
+      <div className="page-head">
+        <div>
+          <h1>实时日志</h1>
+          <div className="sub">引擎推送的每一次新建连接，含直连与阻断 · 可按进程或域名归组</div>
+        </div>
+        <div className="right">
+          <div className="live-strip">
+            <span className={view.connected ? "pulse" : "dot idle"} />
+            {view.connected ? "实时" : "离线"}
+          </div>
+          <button className="btn" onClick={() => api.clearEvents()}>
+            <Trash2 size={14} /> 清空
+          </button>
+        </div>
+      </div>
+
+      <div className="page-body">
+        {!view.connected ? (
+          <OfflineCard
+            status={status}
+            onConnect={onConnect}
+            onSettings={onSettings}
+            what="实时请求"
+          />
+        ) : (
+          <div className="card table-card">
+            <div className="toolbar">
+              <div className="search grow">
+                <Search />
+                <input
+                  className="input"
+                  placeholder="筛选进程、域名、IP、端口…"
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                />
+              </div>
+              <div className="seg">
+                {(
+                  [
+                    { k: "all", label: "全部" },
+                    { k: 0, label: "代理" },
+                    { k: 1, label: "直连" },
+                    { k: 2, label: "阻断" },
+                  ] as const
+                ).map((t) => (
+                  <button
+                    key={String(t.k)}
+                    className={clsx(action === t.k && "on")}
+                    onClick={() => setAction(t.k)}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              <div className="seg">
+                {(
+                  [
+                    { k: "none", label: "逐条" },
+                    { k: "process", label: "按进程" },
+                    { k: "host", label: "按域名" },
+                  ] as const
+                ).map((t) => (
+                  <button
+                    key={t.k}
+                    className={clsx(group === t.k && "on")}
+                    onClick={() => setGroup(t.k)}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              <label className="follow">
+                <Toggle on={follow} onChange={setFollow} />
+                跟随
+              </label>
+              <span className="num tip">{rows.length} 条</span>
+            </div>
+
+            <div className="table-head" style={{ gridTemplateColumns: group === "none" ? LOG_COLS : "74px 70px minmax(220px, 2fr) 90px 70px 1fr" }}>
+              <span>{group === "none" ? "时间" : "最近"}</span>
+              <span>动作</span>
+              <span>{group === "none" ? "进程" : group === "process" ? "进程" : "域名"}</span>
+              <span>{group === "none" ? "目标" : "累计"}</span>
+              <span>{group === "none" ? "端口" : "会话"}</span>
+              <span>{group === "none" ? "说明" : "最近目标"}</span>
+              {group === "none" && <span className="right">规则</span>}
+            </div>
+
+            {group === "none" ? (
+              <div className="table-wrap log-wrap" ref={scrollRef}>
+                {rows.length === 0 && (
+                  <div className="empty">
+                    <Search />
+                    <b>没有匹配的请求</b>
+                    <span>
+                      {events.length
+                        ? "换一个动作筛选或关键字。"
+                        : "打开“记录每条连接”后，应用的新连接会实时出现在这里。"}
+                    </span>
+                  </div>
+                )}
+                {vrows.length > 0 && (
+                  <div style={{ height: virt.getTotalSize(), position: "relative" }}>
+                    {virt.getVirtualItems().map((vi) => {
+                      const e = vrows[vi.index]!;
+                      const host = displayHost(e, view.flows);
+                      const act = eventAction(e);
+                      return (
+                        <div
+                          key={e.seq}
+                          className="row log-row"
+                          style={{
+                            position: "absolute",
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            height: 40,
+                            transform: `translateY(${vi.start}px)`,
+                            gridTemplateColumns: LOG_COLS,
+                          }}
+                          onContextMenu={(ev) => {
+                            ev.preventDefault();
+                            openMenu(e, ev.clientX, ev.clientY);
+                          }}
+                        >
+                          <span className="mono dim">{fmtTime(e.time)}</span>
+                          <span>
+                            {e.kind === "conn" ? (
+                              <span className={clsx("chip", matchChipClass(act))}>
+                                {ACTION_NAMES[act]}
+                              </span>
+                            ) : (
+                              <span className="chip muted">事件</span>
+                            )}
+                          </span>
+                          <span className="proc-name" title={e.process}>
+                            {e.process || "—"}
+                          </span>
+                          <span className="mono target" title={host}>
+                            {host || "—"}
+                          </span>
+                          <span className="mono dim">{e.port || "—"}</span>
+                          <span className="dsc mono" title={e.info || e.text}>
+                            {e.kind === "conn" ? e.info || "" : e.text || e.info || ""}
+                          </span>
+                          <span className="right">
+                            {e.ruleKey ? (
+                              <span className="chip hit">{shortKey(e.ruleKey)}</span>
+                            ) : (
+                              <span className="dim">—</span>
+                            )}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="table-wrap log-wrap" ref={scrollRef}>
+                {grouped.length === 0 && (
+                  <div className="empty">
+                    <Search />
+                    <b>没有可以归组的请求</b>
+                    <span>换一个动作筛选或关键字。</span>
+                  </div>
+                )}
+                {grouped.map((g) => (
+                  <div
+                    key={g.key}
+                    className="row group-row"
+                    style={{ gridTemplateColumns: "74px 70px minmax(220px, 2fr) 90px 70px 1fr" }}
+                    onContextMenu={(ev) => {
+                      ev.preventDefault();
+                      const t = g.last;
+                      onMenu({
+                        x: ev.clientX,
+                        y: ev.clientY,
+                        header: <span>{group === "process" ? "进程" : "域名"}</span>,
+                        items: [
+                          {
+                            kind: "item",
+                            label: `为 ${g.key} 建规则`,
+                            icon: <GitBranch size={14} />,
+                            onSelect: () =>
+                              onNewRule([
+                                group === "process"
+                                  ? { process: g.key, pid: 0, host: "", port: 0, udp: false, proxyKey: t.proxyKey, matchedRuleKey: "" }
+                                  : { process: "*", pid: 0, host: g.key, port: 0, udp: false, proxyKey: t.proxyKey, matchedRuleKey: "" },
+                              ]),
+                          },
+                          {
+                            kind: "item",
+                            label: "只看这一组",
+                            icon: <Search size={14} />,
+                            onSelect: () => setQ(g.key),
+                          },
+                          {
+                            kind: "item",
+                            label: "复制",
+                            icon: <Copy size={14} />,
+                            onSelect: () => {
+                              navigator.clipboard?.writeText(g.key).catch(() => undefined);
+                              onToast(true, "已复制", g.key);
+                            },
+                          },
+                        ],
+                      });
+                    }}
+                  >
+                    <span className="mono dim">{g.last ? fmtTime(g.last.time) : "—"}</span>
+                    <span>
+                      <span className="chip muted">{group === "process" ? "进程" : "域名"}</span>
+                    </span>
+                    <span className="proc-name">{g.key}</span>
+                    <span className="num">{g.count} 次</span>
+                    <span className="num dim">{g.sessions}</span>
+                    <span className="mono dim">{g.sample}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="table-foot">
+              <span className="tip">
+                普通用户可读：连接事件来自引擎回调，只带目标 IP；域名列在有对应会话时补全。
+              </span>
+              <span className="right tip">右键任意一行生成规则</span>
+            </div>
           </div>
         )}
-        {list.slice(0, 500).map((e) => (
-          <div
-            key={e.seq}
-            className={clsx("logline", e.kind)}
-            onContextMenu={(ev) => {
-              ev.preventDefault();
-              const target: RuleTarget = {
-                flowId: 0,
-                process: e.process ?? "",
-                pid: e.pid ?? 0,
-                host: e.host ?? "",
-                port: e.port ?? 0,
-                udp: false,
-                proxyKey: e.proxyKey,
-                matchedRuleKey: e.ruleKey,
-              };
-              onMenu({
-                x: ev.clientX,
-                y: ev.clientY,
-                header: <span>{e.kind === "conn" ? "连接事件" : "引擎日志"}</span>,
-                items: [
-                  {
-                    kind: "item",
-                    label: `为 ${e.process || "该应用"} 建规则`,
-                    icon: <Zap size={14} />,
-                    hint: "进程",
-                    onSelect: () => onNewRule([{ ...target, host: "", port: 0 }]),
-                  },
-                  {
-                    kind: "item",
-                    label: e.host ? `为 ${e.host} 建规则` : "为此连接建规则",
-                    icon: <Globe size={14} />,
-                    disabled: !e.host,
-                    onSelect: () => onNewRule([target]),
-                  },
-                  { kind: "sep" },
-                  {
-                    kind: "item",
-                    label: "复制主机",
-                    icon: <Copy size={14} />,
-                    disabled: !e.host,
-                    onSelect: () => {
-                      navigator.clipboard?.writeText(e.host ?? "").catch(() => undefined);
-                      onToast(true, "已复制", e.host);
-                    },
-                  },
-                  {
-                    kind: "item",
-                    label: "复制整行",
-                    icon: <Copy size={14} />,
-                    onSelect: () => {
-                      navigator.clipboard?.writeText(e.text || e.info || "").catch(() => undefined);
-                      onToast(true, "已复制");
-                    },
-                  },
-                ],
-              });
-            }}
-          >
-            <span className="t mono">{fmtTime(e.time)}</span>
-            <span className={clsx("tag", e.kind)}>
-              {e.kind === "conn" ? "连接" : e.kind === "test" ? "测试" : "日志"}
-            </span>
-            <span className="who">{e.process || "—"}</span>
-            <span className="dsc mono">
-              {e.kind === "conn" ? `${e.host || "?"}:${e.port}` : e.text || e.info}
-            </span>
-            {e.host && e.kind === "conn" && (
-              <button
-                className="btn icon ghost sm right quick"
-                title="一键建规则"
-                onClick={(ev) => {
-                  ev.stopPropagation();
-                  onNewRule([
-                    {
-                      flowId: 0,
-                      process: e.process ?? "",
-                      pid: e.pid ?? 0,
-                      host: e.host ?? "",
-                      port: e.port ?? 0,
-                      udp: false,
-                      proxyKey: e.proxyKey,
-                      matchedRuleKey: e.ruleKey,
-                    },
-                  ]);
-                }}
-              >
-                <Zap size={13} />
-              </button>
-            )}
-          </div>
-        ))}
       </div>
-    </section>
+    </>
   );
+}
+
+function filterEvents(view: View, events: LogEvent[], q: string, action: "all" | RuleAction) {
+  const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
+  return events.filter((e) => {
+    if (e.kind === "test") return false;
+    if (e.kind === "conn" && action !== "all" && eventAction(e) !== action) return false;
+    if (e.kind === "log" && action !== "all") return false;
+    if (!terms.length) return true;
+    const host = displayHost(e, view.flows);
+    const hay = `${e.process ?? ""} ${host} ${e.port ?? ""} ${e.info ?? ""} ${e.text ?? ""}`.toLowerCase();
+    return terms.every((t) => hay.includes(t));
+  });
+}
+
+interface LiveGroupRow {
+  key: string;
+  count: number;
+  sessions: number;
+  sample: string;
+  last: LogEvent;
+}
+
+function groupEvents(
+  rows: LogEvent[],
+  mode: LiveGroup,
+  hostOf: (e: LogEvent) => string,
+): LiveGroupRow[] {
+  const map = new Map<string, { row: LiveGroupRow; targets: Set<string> }>();
+  for (const e of rows) {
+    if (e.kind !== "conn") continue;
+    const host = hostOf(e);
+    const key = (mode === "process" ? e.process : host) || "—";
+    let cur = map.get(key);
+    if (!cur) {
+      cur = {
+        row: { key, count: 0, sessions: 0, sample: "", last: e },
+        targets: new Set(),
+      };
+      map.set(key, cur);
+    }
+    cur.row.count += 1;
+    cur.row.last = e;
+    cur.row.sample = `${host || "?"}:${e.port ?? 0}`;
+    cur.targets.add(`${host}:${e.port}`);
+    cur.row.sessions = cur.targets.size;
+  }
+  return Array.from(map.values())
+    .map((v) => v.row)
+    .sort((a, b) => b.count - a.count);
 }
 
 // ---------------------------------------------------------------- rules
@@ -645,6 +1020,8 @@ export function RulesPage({
   const [dragKey, setDragKey] = useState<string | null>(null);
   const [overKey, setOverKey] = useState<string | null>(null);
   const [del, setDel] = useState<Rule | null>(null);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [confirmBatch, setConfirmBatch] = useState(false);
 
   const rules = useMemo(() => {
     const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
@@ -653,6 +1030,8 @@ export function RulesPage({
       terms.every((t) => describeRule(r, view.proxies).toLowerCase().includes(t)),
     );
   }, [view.rules, view.proxies, q]);
+
+  const chosen = rules.filter((r) => picked.has(r.key));
 
   const move = async (fromKey: string, toKey: string) => {
     if (fromKey === toKey) return;
@@ -671,6 +1050,20 @@ export function RulesPage({
     }
   };
 
+  const deletePicked = async () => {
+    const list = chosen;
+    try {
+      for (const r of list) await api.deleteRule(r.key);
+      setPicked(new Set());
+      setConfirmBatch(false);
+      onToast(true, `已删除 ${list.length} 条规则`);
+    } catch (e) {
+      onToast(false, "批量删除失败", String(e));
+    }
+  };
+
+  const cols = "28px 26px 34px minmax(150px, 1.1fr) minmax(190px, 1.9fr) 82px 112px 96px";
+
   return (
     <>
       <div className="page-head">
@@ -679,7 +1072,7 @@ export function RulesPage({
           <div className="sub">自上而下匹配，命中第一条即生效；拖动排序立即落盘</div>
         </div>
         <div className="right">
-          <div className="search" style={{ width: 240 }}>
+          <div className="search" style={{ width: 220 }}>
             <Search />
             <input
               className="input"
@@ -695,7 +1088,25 @@ export function RulesPage({
       </div>
       <div className="page-body">
         <div className="card">
-          <div className="rule-head" style={{ gridTemplateColumns: "26px 34px minmax(160px, 1.2fr) minmax(200px, 2fr) 90px 118px 74px" }}>
+          {picked.size > 0 && (
+            <div className="selbar">
+              <b>已选 {picked.size} 条</b>
+              <button className="btn sm danger" onClick={() => setConfirmBatch(true)}>
+                <Trash2 size={13} /> 批量删除
+              </button>
+              <button className="btn sm ghost right" onClick={() => setPicked(new Set())}>
+                取消选择
+              </button>
+            </div>
+          )}
+          <div className="rule-head" style={{ gridTemplateColumns: cols }}>
+            <button
+              className={clsx("pick", picked.size > 0 && "on")}
+              title="全选"
+              onClick={() =>
+                setPicked(rules.every((r) => picked.has(r.key)) ? new Set() : new Set(rules.map((r) => r.key)))
+              }
+            />
             <span />
             <span>#</span>
             <span>进程</span>
@@ -708,17 +1119,24 @@ export function RulesPage({
             <div className="empty">
               <Network />
               <b>{q ? "没有匹配的规则" : "还没有规则"}</b>
-              <span>从“连接”页右键任意一条连接，一步生成规则。</span>
+              <span>从“连接”或“实时日志”右键任意一条，一步生成规则。</span>
             </div>
           )}
-          {rules.map((r, i) => {
+          {rules.map((r) => {
             const pos = view.rules.findIndex((x) => x.key === r.key) + 1;
             const p = view.proxies.find((x) => x.key === r.proxyKey);
+            const sel = picked.has(r.key);
             return (
               <div
                 key={r.key}
-                className={clsx("rule", !r.enabled && "disabled", dragKey === r.key && "dragging", overKey === r.key && "over")}
-                style={{ gridTemplateColumns: "26px 34px minmax(160px, 1.2fr) minmax(200px, 2fr) 90px 118px 74px" }}
+                className={clsx(
+                  "rule",
+                  !r.enabled && "disabled",
+                  sel && "sel",
+                  dragKey === r.key && "dragging",
+                  overKey === r.key && "over",
+                )}
+                style={{ gridTemplateColumns: cols }}
                 draggable
                 onDragStart={(e) => {
                   setDragKey(r.key);
@@ -740,6 +1158,17 @@ export function RulesPage({
                   setOverKey(null);
                 }}
               >
+                <button
+                  className={clsx("pick", sel && "on")}
+                  onClick={() =>
+                    setPicked((cur) => {
+                      const next = new Set(cur);
+                      if (next.has(r.key)) next.delete(r.key);
+                      else next.add(r.key);
+                      return next;
+                    })
+                  }
+                />
                 <span className="grip">
                   <GripVertical size={13} />
                 </span>
@@ -750,19 +1179,20 @@ export function RulesPage({
                 </div>
                 <div className="rule-target">
                   <div className="mono">{targetsLabel(r)}</div>
-                  <div className="tip">
-                    {r.domains ? `域名 ${r.domains}` : r.hosts && r.hosts !== "*" ? `地址 ${r.hosts}` : ""}
-                    {r.note ? `${r.domains || (r.hosts && r.hosts !== "*") ? " · " : ""}${r.note}` : ""}
-                  </div>
+                  {r.note && <div className="tip">{r.note}</div>}
                 </div>
                 <span className="mono dim">{PROTO_NAMES[r.protocol]}</span>
                 <span className={clsx("chip", r.action === 0 ? "proxy" : r.action === 1 ? "direct" : "block")}>
                   {r.action === 0 ? p?.name || "代理" : ACTION_NAMES[r.action]}
                 </span>
-                <div className="right">
+                <div className="right actions">
                   <Toggle
                     on={r.enabled}
-                    onChange={() => api.toggleRule(r.key, !r.enabled).catch((e) => onToast(false, "切换失败", String(e)))}
+                    onChange={() =>
+                      api
+                        .toggleRule(r.key, !r.enabled)
+                        .catch((e) => onToast(false, "切换失败", String(e)))
+                    }
                   />
                   <button className="btn icon ghost sm" onClick={() => onEdit(r, 0)} title="编辑">
                     <Pencil size={13} />
@@ -791,6 +1221,11 @@ export function RulesPage({
           onConfirm={async () => {
             try {
               await api.deleteRule(del.key);
+              setPicked((cur) => {
+                const next = new Set(cur);
+                next.delete(del.key);
+                return next;
+              });
               onToast(true, "已删除规则");
             } catch (e) {
               onToast(false, "删除失败", String(e));
@@ -799,17 +1234,29 @@ export function RulesPage({
           onClose={() => setDel(null)}
         />
       )}
+      {confirmBatch && (
+        <Confirm
+          title={`删除 ${chosen.length} 条规则`}
+          body={<>{chosen.slice(0, 4).map((r) => describeRule(r, view.proxies)).join("；")}{chosen.length > 4 ? " …" : ""}</>}
+          confirmLabel="全部删除"
+          onConfirm={deletePicked}
+          onClose={() => setConfirmBatch(false)}
+        />
+      )}
     </>
   );
 }
 
 function targetsLabel(r: Rule) {
   const parts: string[] = [];
+  const port = r.ports && r.ports !== "*" ? `端口 ${r.ports}` : "";
   if (r.domains) parts.push(r.domains);
   if (r.hosts && r.hosts !== "*") parts.push(r.hosts);
-  if (r.ports && r.ports !== "*") parts.push(`:${r.ports}`);
-  return parts.length ? parts.join(" ") : "全部流量";
+  if (!parts.length) return port ? `所有主机 · ${port}` : "全部流量";
+  if (port) parts.push(port);
+  return parts.join(" · ");
 }
+
 
 // ---------------------------------------------------------------- proxies
 
@@ -822,7 +1269,6 @@ export function ProxiesPage({
   onEdit: (p: Proxy | null) => void;
   onToast: Toast;
 }) {
-  const [test, setTest] = useState<string>("");
   const [run, setRun] = useState<TestRun | null>(null);
   const [del, setDel] = useState<Proxy | null>(null);
 
@@ -831,7 +1277,6 @@ export function ProxiesPage({
   }, [view.test]);
 
   const startTest = async (p: Proxy) => {
-    setTest(p.key);
     try {
       await api.testProxy(p.key);
       onToast(true, "开始测试", `${p.ip}:${p.port}`);
@@ -859,7 +1304,7 @@ export function ProxiesPage({
             <div className="empty">
               <Server />
               <b>还没有代理配置</b>
-              <span>添加一个本地 SOCKS5（例如 clash 的 127.0.0.1:7890/1080）即可开始。</span>
+              <span>添加一个本地 SOCKS5（例如 clash 的 127.0.0.1:7890）即可开始。</span>
             </div>
           </div>
         )}
@@ -975,25 +1420,43 @@ export function SettingsPage({
 }: {
   view: View;
   status: AppStatus | null;
-  onStatus: () => void;
+  onStatus: (connect?: boolean) => void;
   onToast: Toast;
 }) {
-  const [busy, setBusy] = useState<"" | "install" | "uninstall">("");
+  const [busy, setBusy] = useState<"" | "install" | "uninstall" | "connect" | "login">("");
   const s = status?.service;
   const engineOk = status?.engineReady ?? false;
 
-  const act = async (kind: "install" | "uninstall") => {
+  const act = async (kind: "install" | "uninstall" | "connect" | "login", on?: boolean) => {
     setBusy(kind);
     try {
-      await (kind === "install" ? api.installEngine() : api.uninstallEngine());
-      onToast(
-        true,
-        kind === "install" ? "引擎服务已安装" : "引擎服务已卸载",
-        "可能需要重启应用后生效",
-      );
-      onStatus();
+      if (kind === "install") {
+        await api.installEngine();
+        onToast(true, "引擎服务已安装", "正在连接引擎…");
+        try {
+          await api.connect();
+          onToast(true, "已连接引擎");
+        } catch (e) {
+          onToast(false, "服务已安装，但连接失败", String(e));
+        }
+        onStatus(true);
+      } else if (kind === "uninstall") {
+        await api.uninstallEngine();
+        onToast(true, "引擎服务已卸载");
+        onStatus(false);
+      } else if (kind === "connect") {
+        await api.connect();
+        onToast(true, "已连接引擎");
+        onStatus(true);
+      } else {
+        await api.setAutoStart(!!on);
+        onToast(true, on ? "已设置开机自启" : "已关闭开机自启");
+        onStatus();
+      }
     } catch (e) {
-      onToast(false, kind === "install" ? "安装失败" : "卸载失败", String(e));
+      const title =
+        kind === "install" ? "安装失败" : kind === "uninstall" ? "卸载失败" : kind === "connect" ? "连接失败" : "设置失败";
+      onToast(false, title, String(e));
     } finally {
       setBusy("");
     }
@@ -1007,7 +1470,7 @@ export function SettingsPage({
           <div className="sub">引擎服务、数据位置与行为偏好</div>
         </div>
         <div className="right">
-          <button className="btn" onClick={onStatus}>
+          <button className="btn" onClick={() => onStatus()}>
             <RefreshCw size={14} /> 刷新状态
           </button>
         </div>
@@ -1032,6 +1495,12 @@ export function SettingsPage({
               </b>
             </div>
             <div className="kv">
+              <span>连接</span>
+              <b className={view.connected ? "ok" : "err"}>
+                {view.connected ? `已连接 · 协议 v${view.version}` : "未连接"}
+              </b>
+            </div>
+            <div className="kv">
               <span>启动类型</span>
               <b>{s?.startType || "—"}</b>
             </div>
@@ -1039,25 +1508,26 @@ export function SettingsPage({
               <span>引擎文件</span>
               <b className={engineOk ? "ok" : "err"}>{engineOk ? "完整" : "缺失"}</b>
             </div>
-            <div className="kv">
-              <span>协议版本</span>
-              <b>{view.version ? `v${view.version}` : "—"}</b>
-            </div>
             {s?.binPath && (
               <div className="kv">
                 <span>服务路径</span>
                 <b className="mono small">{s.binPath}</b>
               </div>
             )}
-            {s?.error && <div className="kv"><span>错误</span><b className="mono small err">{s.error}</b></div>}
+            {s?.error && (
+              <div className="kv">
+                <span>错误</span>
+                <b className="mono small err">{s.error}</b>
+              </div>
+            )}
             <div className="row-actions">
-              <button
-                className="btn primary"
-                disabled={!!busy || !engineOk}
-                onClick={() => act("install")}
-              >
+              <button className="btn primary" disabled={!!busy || !engineOk} onClick={() => act("install")}>
                 {busy === "install" ? <Loader2 className="spin" size={14} /> : <ShieldCheck size={14} />}
                 {s?.installed ? "修复 / 重启服务" : "安装引擎服务"}
+              </button>
+              <button className="btn" disabled={!!busy} onClick={() => act("connect")}>
+                {busy === "connect" ? <Loader2 className="spin" size={14} /> : <Power size={14} />}
+                连接引擎
               </button>
               {s?.installed && (
                 <button className="btn danger" disabled={!!busy} onClick={() => act("uninstall")}>
@@ -1065,13 +1535,6 @@ export function SettingsPage({
                   卸载
                 </button>
               )}
-              <button
-                className="btn"
-                onClick={() => api.connect(view.mode === "service").catch((e) => onToast(false, "连接失败", String(e)))}
-              >
-                <Power size={14} />
-                {view.mode === "mock" ? "切换到真实引擎" : "连接到演示引擎"}
-              </button>
             </div>
             <div className="tip">
               安装需要管理员权限（会弹出 UAC）。服务名固定为 ProxyBridgeSvc，与官方 ProxyBridge 共存时会被替换。
@@ -1092,15 +1555,22 @@ export function SettingsPage({
             />
             <Pref
               title="记录每条连接"
-              desc="把新建连接写入日志（可能很吵）"
+              desc="把新建连接写入实时日志"
               on={view.trafficLog}
               onChange={(v) => api.setTrafficLog(v).catch((e) => onToast(false, "切换失败", String(e)))}
             />
             <Pref
               title="全量流量日志"
-              desc="引擎调试日志级别"
+              desc="引擎调试日志级别，会明显变吵"
               on={view.logAll}
               onChange={(v) => api.setLogAll(v).catch((e) => onToast(false, "切换失败", String(e)))}
+            />
+            <Pref
+              title="开机自启"
+              desc="随 Windows 登录启动，最小化到托盘"
+              on={!!status?.autoStart}
+              busy={busy === "login"}
+              onChange={(v) => act("login", v)}
             />
           </div>
         </div>
@@ -1160,11 +1630,13 @@ function Pref({
   title,
   desc,
   on,
+  busy,
   onChange,
 }: {
   title: string;
   desc: string;
   on: boolean;
+  busy?: boolean;
   onChange: (v: boolean) => void;
 }) {
   return (
@@ -1173,7 +1645,7 @@ function Pref({
         <b>{title}</b>
         <span className="tip">{desc}</span>
       </div>
-      <Toggle on={on} onChange={onChange} />
+      {busy ? <Loader2 className="spin" size={16} /> : <Toggle on={on} onChange={onChange} />}
     </div>
   );
 }
@@ -1215,3 +1687,14 @@ export function RuleDrawer({
   );
 }
 
+// ---------------------------------------------------------------- small helpers
+
+function shortKey(k: string) {
+  return k.length > 7 ? `#${k.slice(0, 5)}` : `#${k}`;
+}
+
+function rootDomain(host: string) {
+  const parts = host.replace(/^www\./, "").split(".");
+  if (parts.length <= 2) return `*.${host}`;
+  return `*.${parts.slice(-2).join(".")}`;
+}

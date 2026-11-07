@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"errors"
 	"fmt"
 	"log"
@@ -19,6 +20,12 @@ import (
 
 const version = "0.1.0"
 
+//go:embed resources/icon.png
+var appIcon []byte
+
+//go:embed resources/tray.png
+var trayIcon []byte
+
 // StatusView is what the settings page shows about the machine.
 type StatusView struct {
 	Service      svc.Status `json:"service"`
@@ -27,6 +34,7 @@ type StatusView struct {
 	SettingsPath string     `json:"settingsPath"`
 	EngineDir    string     `json:"engineDir"`
 	EngineReady  bool       `json:"engineReady"`
+	AutoStart    bool       `json:"autoStart"`
 	Version      string     `json:"version"`
 	Platform     string     `json:"platform"`
 }
@@ -41,15 +49,9 @@ type API struct {
 // View returns the whole UI state plus the events since `since`.
 func (a *API) View(since uint64) session.View { return a.sess.Snapshot(since) }
 
-// Connect dials the engine service, or the built-in mock, and replays rules.
-func (a *API) Connect(mock bool) error {
-	if err := a.sess.Connect(mock); err != nil {
-		return err
-	}
-	return a.store.Update(func(st *model.Settings) error {
-		st.UI.LastMock = mock
-		return nil
-	})
+// Connect dials the engine service and replays the stored rules.
+func (a *API) Connect() error {
+	return a.sess.Connect()
 }
 
 // Disconnect drops the engine connection.
@@ -118,6 +120,7 @@ func (a *API) Status() StatusView {
 		SettingsPath: a.store.Path(),
 		EngineDir:    dir,
 		EngineReady:  ready,
+		AutoStart:    mygo.App.OpenAtLogin(),
 		Version:      version,
 		Platform:     runtime.GOOS + "/" + runtime.GOARCH,
 	}
@@ -154,10 +157,21 @@ func (a *API) UninstallEngine() error {
 	return svc.Uninstall()
 }
 
-// SaveUI remembers the last page and toggles.
+// SaveUI remembers the last page, theme and toggles.
 func (a *API) SaveUI(ui model.UIState) error {
 	return a.store.Update(func(st *model.Settings) error {
 		st.UI = ui
+		return nil
+	})
+}
+
+// SetAutoStart adds or removes the current user's login item.
+func (a *API) SetAutoStart(on bool) error {
+	if err := mygo.App.SetOpenAtLogin(on); err != nil {
+		return err
+	}
+	return a.store.Update(func(st *model.Settings) error {
+		st.Engine.AutoStart = on
 		return nil
 	})
 }
@@ -246,6 +260,7 @@ func main() {
 	mygo.Bind(api)
 
 	mygo.App.WhenReady(func() {
+		launchedAtLogin := mygo.App.WasOpenedAtLogin()
 		win := mygo.NewWindow(mygo.WindowOptions{
 			Title:           "PBDeck",
 			Width:           1240,
@@ -257,9 +272,42 @@ func main() {
 			BackgroundColor: "light-dark(#f4f5f7, #0d0f13)",
 			StateKey:        "main",
 			URL:             "/",
+			Hidden:          launchedAtLogin,
 		})
+
+		quitting := false
+		mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) { quitting = true })
+
+		if err := win.SetIcon(appIcon); err != nil {
+			log.Printf("window icon: %v", err)
+		}
+
+		focus := func() {
+			win.Show()
+			win.Focus()
+		}
+		tray, err := mygo.NewTray(mygo.TrayOptions{
+			Icon:    trayIcon,
+			ToolTip: "PBDeck — 代理规则控制台",
+			Menu: mygo.NewMenu([]*mygo.MenuItem{
+				{Label: "显示 PBDeck", Click: func(*mygo.MenuItem, *mygo.Window) { focus() }},
+				mygo.Separator(),
+				{Label: "退出", Role: mygo.RoleQuit},
+			}),
+		})
+		if err != nil {
+			log.Printf("tray: %v", err)
+		} else {
+			tray.OnClick(focus)
+		}
+
 		win.OnClose(func(e *mygo.CloseEvent) {
-			sess.Disconnect()
+			if quitting || tray == nil {
+				sess.Disconnect()
+				return
+			}
+			e.PreventDefault()
+			win.Hide()
 		})
 	})
 	if err := mygo.App.Run(); err != nil {

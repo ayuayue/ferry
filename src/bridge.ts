@@ -84,7 +84,7 @@ export interface Stats {
 }
 
 export interface View {
-  mode: "offline" | "service" | "mock";
+  mode: "offline" | "service";
   connected: boolean;
   version: number;
   error?: string;
@@ -99,6 +99,7 @@ export interface View {
   test?: TestRun;
   stats: Stats;
   started: string;
+  ui: UIState;
 }
 
 export interface ServiceStatus {
@@ -116,6 +117,7 @@ export interface AppStatus {
   settingsPath: string;
   engineDir: string;
   engineReady: boolean;
+  autoStart: boolean;
   version: string;
   platform: string;
 }
@@ -160,9 +162,9 @@ export interface ProcInfo {
 
 export interface UIState {
   page: string;
+  theme: "light" | "dark";
   showLogs: boolean;
   compact: boolean;
-  lastMock: boolean;
 }
 
 const get = <T>(method: string, ...args: unknown[]): Promise<T> =>
@@ -170,7 +172,7 @@ const get = <T>(method: string, ...args: unknown[]): Promise<T> =>
 
 export const api = {
   view: (since: number) => get<View>("View", since),
-  connect: (mock: boolean) => get<void>("Connect", mock),
+  connect: () => get<void>("Connect"),
   disconnect: () => get<void>("Disconnect"),
   setEnabled: (on: boolean) => get<void>("SetEnabled", on),
   setTrafficLog: (on: boolean) => get<void>("SetTrafficLog", on),
@@ -191,6 +193,7 @@ export const api = {
   installEngine: () => get<void>("InstallEngine"),
   uninstallEngine: () => get<void>("UninstallEngine"),
   saveUI: (ui: UIState) => get<void>("SaveUI", ui),
+  setAutoStart: (on: boolean) => get<void>("SetAutoStart", on),
   revealData: () => get<void>("RevealData"),
   revealEngine: () => get<void>("RevealEngine"),
 };
@@ -243,4 +246,24 @@ export function describeRule(r: Rule, proxies: Proxy[]): string {
 
 export function matchChipClass(action: RuleAction): string {
   return action === 0 ? "proxy" : action === 1 ? "direct" : "block";
+}
+
+// eventAction reads the engine's connection info line: "Proxy ... (UDP)",
+// "Direct", "Blocked". Everything else is treated as proxied.
+export function eventAction(e: LogEvent): RuleAction {
+  const info = (e.info ?? "").toLowerCase();
+  if (info.includes("block")) return 2;
+  if (info.includes("direct")) return 1;
+  return 0;
+}
+
+// displayHost prefers a domain seen in a flow for the same process and port,
+// because connection events only carry the destination IP.
+export function displayHost(e: LogEvent, flows: Flow[]): string {
+  const host = e.host ?? "";
+  if (!host || !isIP(host)) return host;
+  const hit = flows.find(
+    (f) => f.pid === e.pid && f.port === e.port && f.host && !isIP(f.host),
+  );
+  return hit?.host ?? host;
 }

@@ -19,6 +19,8 @@ import {
   Settings2,
   ShieldCheck,
   Square,
+  Sun,
+  Moon,
   Trash2,
   X,
 } from "lucide-react";
@@ -49,10 +51,19 @@ function win() {
   }
 }
 
-export function TitleBar({ view, onStatus }: { view: View; onStatus?: () => void }) {
+export function TitleBar({
+  view,
+  theme,
+  onTheme,
+  onStatus,
+}: {
+  view: View;
+  theme: "light" | "dark";
+  onTheme: () => void;
+  onStatus?: () => void;
+}) {
   const w = win();
-  const mode =
-    view.mode === "mock" ? "演示引擎" : view.mode === "service" ? "引擎服务" : "未连接";
+  const mode = view.mode === "service" ? "引擎服务" : "未连接";
   return (
     <header className="titlebar">
       <div className="brand">
@@ -61,18 +72,19 @@ export function TitleBar({ view, onStatus }: { view: View; onStatus?: () => void
       </div>
       <div className="spacer" />
       <button className="engine-pill" onClick={onStatus} title="引擎状态">
-        <span
-          className={view.connected ? "pulse" : "dot"}
-          style={
-            view.connected
-              ? undefined
-              : { width: 7, height: 7, borderRadius: 99, background: "#61707e" }
-          }
-        />
+        <span className={view.connected ? "pulse" : "dot idle"} />
         <b>{mode}</b>
         {view.connected && <span className="mono">v{view.version}</span>}
       </button>
       <div className="spacer" />
+      <button
+        className="btn icon ghost sm theme-toggle"
+        onClick={onTheme}
+        title={theme === "light" ? "切换到深色" : "切换到亮色"}
+        aria-label="切换主题"
+      >
+        {theme === "light" ? <Moon size={15} /> : <Sun size={15} />}
+      </button>
       <div className="win-buttons">
         <button onClick={() => w?.minimize()} aria-label="最小化">
           <Minus size={14} />
@@ -90,10 +102,11 @@ export function TitleBar({ view, onStatus }: { view: View; onStatus?: () => void
 
 // ---------- rail ----------
 
-export type Page = "connections" | "rules" | "proxies" | "settings";
+export type Page = "connections" | "live" | "rules" | "proxies" | "settings";
 
 const NAV: { id: Page; label: string; icon: ReactNode }[] = [
   { id: "connections", label: "连接", icon: <Activity /> },
+  { id: "live", label: "实时日志", icon: <CircleDot /> },
   { id: "rules", label: "规则", icon: <Network /> },
   { id: "proxies", label: "代理", icon: <Server /> },
   { id: "settings", label: "设置", icon: <Settings2 /> },
@@ -103,13 +116,16 @@ export function Rail({
   page,
   onPage,
   view,
+  eventsCount = 0,
 }: {
   page: Page;
   onPage: (p: Page) => void;
   view: View;
+  eventsCount?: number;
 }) {
   const counts: Record<Page, number | null> = {
-    connections: view.flows.length || null,
+    connections: view.stats.flows || null,
+    live: eventsCount,
     rules: view.rules.length || null,
     proxies: view.proxies.length || null,
     settings: null,
@@ -453,7 +469,7 @@ export function ProcessPicker({
         </div>
       )}
       {filtered.slice(0, 300).map((p) => (
-        <button key={p.path} className="proc-row" onClick={() => onPick(p.name, p.path)}>
+        <button key={p.path} className="pick-row" onClick={() => onPick(p.name, p.path)}>
           <span className="ico">
             {icons[p.path] ? <img src={icons[p.path]} alt="" /> : <ShieldCheck size={13} />}
           </span>

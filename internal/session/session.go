@@ -19,7 +19,6 @@ import (
 const (
 	ModeOffline = "offline"
 	ModeService = "service"
-	ModeMock    = "mock"
 )
 
 // Event is one row of the activity log: a new connection, an engine message or
@@ -82,6 +81,7 @@ type View struct {
 	Test       *TestRun      `json:"test,omitempty"`
 	Stats      Stats         `json:"stats"`
 	Started    time.Time     `json:"started"`
+	UI         model.UIState `json:"ui"`
 }
 
 // RuleTarget is what the page sends back for a right-clicked row: a live flow
@@ -133,7 +133,6 @@ type Session struct {
 
 	mu      sync.Mutex
 	cli     *pbproto.Client
-	mock    *pbproto.Mock
 	mode    string
 	lastErr string
 	version uint32
@@ -145,6 +144,9 @@ type Session struct {
 	stop    chan struct{}
 	started time.Time
 	logf    func(string, ...any)
+
+	// ruleKeys maps engine ids to the app's rule keys; nil means stale.
+	ruleKeys map[uint32]string
 }
 
 // New creates an offline session over the given store.
@@ -162,45 +164,19 @@ func (s *Session) Mode() string {
 	return s.mode
 }
 
-// Connect dials the engine (or the mock) and replays the stored rules.
-func (s *Session) Connect(useMock bool) error {
-	// If a switch to the real engine fails, the demo session is put back so a
-	// missing service does not leave the UI empty.
-	prev := s.Mode()
+// Connect dials the engine service and replays the stored rules.
+func (s *Session) Connect() error {
 	s.Disconnect()
 
-	var cli *pbproto.Client
-	var mock *pbproto.Mock
-	var err error
-	mode := ModeService
-
-	if useMock {
-		mode = ModeMock
-		mock = pbproto.NewMock()
-		if err := mock.Start(); err != nil {
-			return fmt.Errorf("mock engine: %w", err)
-		}
-		cli, err = pbproto.DialPipes(mock.CtlName, mock.EvtName)
-		if err != nil {
-			mock.Close()
-			return fmt.Errorf("mock engine: %w", err)
-		}
-	} else {
-		cli, err = pbproto.Dial()
-		if err != nil {
-			if prev == ModeMock {
-				_ = s.Connect(true)
-				return fmt.Errorf("%w（已留在演示引擎）", err)
-			}
-			return err
-		}
+	cli, err := pbproto.Dial()
+	if err != nil {
+		return err
 	}
 
 	stop := make(chan struct{})
 	s.mu.Lock()
 	s.cli = cli
-	s.mock = mock
-	s.mode = mode
+	s.mode = ModeService
 	s.stop = stop
 	s.version = cli.Version()
 	s.started = time.Now()
@@ -218,16 +194,16 @@ func (s *Session) Connect(useMock bool) error {
 
 	go s.pump(cli, stop)
 	go s.pollFlows(cli, stop)
-	s.logf("connected to %s engine (protocol v%d)", mode, cli.Version())
+	s.logf("connected to the engine service (protocol v%d)", cli.Version())
 	return nil
 }
 
 // Disconnect tears the connection down; buffers stay for the offline view.
 func (s *Session) Disconnect() {
 	s.mu.Lock()
-	cli, mock, stop := s.cli, s.mock, s.stop
+	cli, stop := s.cli, s.stop
 	was := s.mode
-	s.cli, s.mock, s.stop = nil, nil, nil
+	s.cli, s.stop = nil, nil
 	s.mode = ModeOffline
 	s.flows = nil
 	if s.test != nil && s.test.Running {
@@ -240,9 +216,6 @@ func (s *Session) Disconnect() {
 	}
 	if cli != nil {
 		_ = cli.Close()
-	}
-	if mock != nil {
-		mock.Close()
 	}
 	if was != ModeOffline {
 		s.logf("disconnected from %s engine", was)
@@ -370,6 +343,7 @@ func (s *Session) Snapshot(since uint64) View {
 		Seq:        s.seq,
 		Stats:      s.stats,
 		Started:    s.started,
+		UI:         st.UI,
 	}
 	v.Flows = append([]FlowView(nil), s.flows...)
 	for _, e := range s.events {
@@ -566,6 +540,7 @@ func (s *Session) TestProxy(key string) error {
 // SaveRule adds or edits a rule. insertAt > 0 asks the engine for that 1-based
 // position; 0 keeps the current place (new rules go to the end).
 func (s *Session) SaveRule(r model.Rule, insertAt int) (model.Rule, error) {
+	defer s.invalidateRuleKeys()
 	r.Process = strings.TrimSpace(r.Process)
 	if r.Process == "" {
 		r.Process = "*"
@@ -667,6 +642,7 @@ func ruleSpec(st model.Settings, r model.Rule) pbproto.RuleSpec {
 
 // DeleteRule removes a rule from the store and the engine.
 func (s *Session) DeleteRule(key string) error {
+	defer s.invalidateRuleKeys()
 	var engineID uint32
 	err := s.store.Update(func(st *model.Settings) error {
 		for i, r := range st.Rules {
@@ -695,6 +671,7 @@ func (s *Session) DeleteRule(key string) error {
 
 // ToggleRule enables or disables a rule.
 func (s *Session) ToggleRule(key string, on bool) error {
+	defer s.invalidateRuleKeys()
 	var engineID uint32
 	err := s.store.Update(func(st *model.Settings) error {
 		for i := range st.Rules {
@@ -722,6 +699,7 @@ func (s *Session) ToggleRule(key string, on bool) error {
 
 // Reorder applies a new rule order (keys, top first).
 func (s *Session) Reorder(keys []string) error {
+	defer s.invalidateRuleKeys()
 	var ids []uint32
 	err := s.store.Update(func(st *model.Settings) error {
 		byKey := make(map[string]model.Rule, len(st.Rules))
@@ -1049,6 +1027,55 @@ func (s *Session) pump(cli *pbproto.Client, stop chan struct{}) {
 	}
 }
 
+// invalidateRuleKeys marks the engine-id index stale after a rule mutation.
+func (s *Session) invalidateRuleKeys() {
+	s.mu.Lock()
+	s.ruleKeys = nil
+	s.mu.Unlock()
+}
+
+// ruleKeyFor maps an engine rule id to the app's stable rule key. The engine
+// only hands out numeric ids; the UI prefers keys so links survive rebuilds.
+func (s *Session) ruleKeyFor(id uint32) string {
+	if id == 0 {
+		return ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ruleKeys == nil {
+		st := s.store.Snapshot()
+		m := make(map[uint32]string, len(st.Rules))
+		for _, r := range st.Rules {
+			if r.EngineID != 0 {
+				m[r.EngineID] = r.Key
+			}
+		}
+		s.ruleKeys = m
+	}
+	return s.ruleKeys[id]
+}
+
+// ruleIDFromInfo pulls the id out of messages like "SOCKS5 127.0.0.1:1080
+// (rule #12)" or "blocked by rule #4".
+func ruleIDFromInfo(info string) uint32 {
+	i := strings.IndexByte(info, '#')
+	if i < 0 {
+		return 0
+	}
+	j := i + 1
+	for j < len(info) && info[j] >= '0' && info[j] <= '9' {
+		j++
+	}
+	if j == i+1 {
+		return 0
+	}
+	n, err := strconv.ParseUint(info[i+1:j], 10, 32)
+	if err != nil {
+		return 0
+	}
+	return uint32(n)
+}
+
 func (s *Session) handle(ev pbproto.Event) {
 	switch ev.Kind {
 	case pbproto.EvtConn:
@@ -1064,6 +1091,9 @@ func (s *Session) handle(ev pbproto.Event) {
 			}
 		}
 		s.mu.Unlock()
+		if key := s.ruleKeyFor(ruleIDFromInfo(c.Info)); key != "" {
+			e.RuleKey = key
+		}
 		s.appendEvent(e)
 	case pbproto.EvtLog:
 		s.appendEvent(Event{Kind: "log", Text: ev.Log})

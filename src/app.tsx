@@ -20,9 +20,17 @@ import {
   type Page,
   type Toast,
 } from "./components";
-import { ConnectionsPage, ProxiesPage, RuleDrawer, RulesPage, SettingsPage } from "./pages";
+import {
+  ConnectionsPage,
+  LiveLogPage,
+  ProxiesPage,
+  RuleDrawer,
+  RulesPage,
+  SettingsPage,
+} from "./pages";
 
 type Notify = (ok: boolean, title: string, detail?: string) => void;
+type Theme = "light" | "dark";
 
 const EMPTY: View = {
   mode: "offline",
@@ -39,15 +47,20 @@ const EMPTY: View = {
   seq: 0,
   stats: { events: 0, flows: 0, up: 0, down: 0, replays: 0 },
   started: "",
+  ui: { page: "connections", theme: "light", showLogs: false, compact: false },
 };
+
+function applyTheme(theme: Theme) {
+  document.documentElement.dataset.theme = theme;
+  document.documentElement.style.colorScheme = theme;
+}
 
 export default function App() {
   const [view, setView] = useState<View>(EMPTY);
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [page, setPage] = useState<Page>("connections");
-  const [logOpen, setLogOpen] = useState(false);
+  const [theme, setTheme] = useState<Theme>("light");
   const [events, setEvents] = useState<LogEvent[]>([]);
-  const [selected, setSelected] = useState<number[]>([]);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [drawer, setDrawer] = useState<{ open: boolean; rule: Rule | null; at: number }>({
@@ -64,6 +77,8 @@ export default function App() {
   const seq = useRef(0);
   const fails = useRef(0);
   const busy = useRef(false);
+  const hydrated = useRef(false);
+  const connectedOnce = useRef(false);
 
   const toast = useCallback<Notify>((ok, title, detail) => {
     seq.current += 1;
@@ -89,6 +104,11 @@ export default function App() {
         setEvents((cur) => [...v.events.slice().reverse(), ...cur].slice(0, 800));
       }
       setView(v);
+      if (!hydrated.current) {
+        hydrated.current = true;
+        if (v.ui.theme === "dark" || v.ui.theme === "light") setTheme(v.ui.theme);
+        if (v.ui.page) setPage(v.ui.page as Page);
+      }
     } catch (e) {
       fails.current += 1;
       if (fails.current === 4) toast(false, "与 Go 后端通信中断", String(e));
@@ -97,22 +117,35 @@ export default function App() {
     }
   }, [toast]);
 
+  const connectNow = useCallback(
+    async (quiet = false) => {
+      try {
+        await api.connect();
+        connectedOnce.current = true;
+        await refreshStatus();
+        await tick();
+        if (!quiet) toast(true, "已连接引擎服务");
+      } catch (e) {
+        await refreshStatus();
+        if (!quiet || !connectedOnce.current) {
+          toast(false, "引擎未连接", String(e));
+        }
+        connectedOnce.current = true;
+      }
+    },
+    [refreshStatus, tick, toast],
+  );
+
+  useEffect(() => {
+    applyTheme(theme);
+  }, [theme]);
+
   useEffect(() => {
     let stopped = false;
     (async () => {
       await refreshStatus();
-      try {
-        await api.connect(false);
-      } catch {
-        try {
-          await api.connect(true);
-          toast(true, "已连接到演示引擎", "未检测到引擎服务，当前是假数据");
-        } catch (e) {
-          toast(false, "引擎未连接", String(e));
-        }
-      }
+      await connectNow(true);
       if (!stopped) await tick();
-      if (!stopped) await refreshStatus();
     })();
     const t = setInterval(() => {
       if (!stopped) void tick();
@@ -122,6 +155,19 @@ export default function App() {
       clearInterval(t);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Remember the page and theme once the first view has loaded; saving on every
+  // page change keeps a restart on the same tab.
+  useEffect(() => {
+    if (!hydrated.current) return;
+    const cur = { ...view.ui, page, theme };
+    if (cur.page === view.ui.page && cur.theme === view.ui.theme) return;
+    api.saveUI(cur).catch(() => undefined);
+  }, [page, theme, view.ui]);
+
+  const toggleTheme = useCallback(() => {
+    setTheme((t) => (t === "light" ? "dark" : "light"));
   }, []);
 
   const openCustomRule = useCallback(
@@ -185,36 +231,36 @@ export default function App() {
 
   return (
     <div className="shell">
-      <TitleBar view={view} onStatus={() => setPage("settings")} />
+      <TitleBar view={view} theme={theme} onTheme={toggleTheme} onStatus={() => setPage("settings")} />
       <div className="body">
-        <Rail
-          page={page}
-          view={view}
-          onPage={(p) => {
-            setPage(p);
-            setSelected([]);
-          }}
-        />
+        <Rail page={page} view={view} eventsCount={events.length} onPage={setPage} />
         <main className="pb-main">
           {page === "connections" && (
             <ConnectionsPage
               view={view}
               events={events}
-              selected={selected}
-              setSelected={setSelected}
-              logOpen={logOpen}
-              onLogToggle={setLogOpen}
+              status={status}
+              onConnect={() => void connectNow()}
+              onSettings={() => setPage("settings")}
+              onMenu={setMenu}
+              onToast={toast}
+              onNewRule={quickRule}
+            />
+          )}
+          {page === "live" && (
+            <LiveLogPage
+              view={view}
+              events={events}
+              status={status}
+              onConnect={() => void connectNow()}
+              onSettings={() => setPage("settings")}
               onMenu={setMenu}
               onToast={toast}
               onNewRule={quickRule}
             />
           )}
           {page === "rules" && (
-            <RulesPage
-              view={view}
-              onToast={toast}
-              onEdit={(rule, at) => setDrawer({ open: true, rule, at })}
-            />
+            <RulesPage view={view} onToast={toast} onEdit={(rule, at) => setDrawer({ open: true, rule, at })} />
           )}
           {page === "proxies" && (
             <ProxiesPage
@@ -273,10 +319,10 @@ export default function App() {
 
       <div className="statusbar">
         <span>规则 {ruleCount}/{view.rules.length}</span>
-        <span>连接 {view.flows.length}</span>
+        <span>会话 {view.flows.length}</span>
         <span>日志 {events.length}</span>
         <span className="right mono">
-          {view.connected ? `${view.mode} · proto v${view.version}` : "offline"}
+          {view.connected ? `service · proto v${view.version}` : "offline"}
         </span>
       </div>
     </div>
