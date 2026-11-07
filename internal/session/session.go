@@ -238,7 +238,6 @@ func (s *Session) setError(err error) {
 func (s *Session) replay() error {
 	st := s.store.Snapshot()
 
-	proxyIDs := make(map[string]uint32, len(st.Proxies))
 	for _, p := range st.Proxies {
 		id, err := s.cli.AddProxy(pbproto.ProxyConfig{
 			Type: p.Type, IP: p.IP, Port: p.Port, User: p.User, Pass: p.Pass, SendDomain: p.SendDomain,
@@ -246,21 +245,14 @@ func (s *Session) replay() error {
 		if err != nil {
 			return fmt.Errorf("proxy %q: %w", p.Name, err)
 		}
-		proxyIDs[p.Key] = id
 		s.setProxyEngineID(p.Key, id)
 	}
 
-	for i, r := range st.Rules {
-		spec := pbproto.RuleSpec{
-			Process:   optStr(r.Process),
-			Hosts:     optStr(r.Hosts),
-			Ports:     optStr(r.Ports),
-			Domains:   optStr(r.Domains),
-			Protocol:  r.Protocol,
-			Action:    r.Action,
-			ProxyID:   proxyIDs[r.ProxyKey],
-			Localhost: r.Localhost,
-		}
+	// Take the snapshot again so ruleSpec sees the ids just registered and the
+	// proxy fallback for rules stored before the fallback existed.
+	stNow := s.store.Snapshot()
+	for i, r := range stNow.Rules {
+		spec := ruleSpec(stNow, r)
 		id, err := s.cli.AddRule(spec)
 		if err != nil {
 			return fmt.Errorf("rule %d (%s): %w", i+1, ruleSummary(r), err)
@@ -394,7 +386,13 @@ func (s *Session) engine(fn func(*pbproto.Client) error) error {
 	if cli == nil {
 		return nil
 	}
-	return fn(cli)
+	err := fn(cli)
+	if errors.Is(err, pbproto.ErrDisconnected) || errors.Is(err, pbproto.ErrClosed) {
+		// The service closed the control pipe; stop pretending we are online.
+		s.logf("engine control pipe closed: %v", err)
+		s.Disconnect()
+	}
+	return err
 }
 
 // ClearEvents empties the activity ring and asks the engine to drop its own
@@ -597,31 +595,66 @@ func (s *Session) SaveRule(r model.Rule, insertAt int) (model.Rule, error) {
 		return r, err
 	}
 
+	// The engine only knows the rules it has registered, so a position taken
+	// from the store index can point past the end of its list; the service
+	// answers such a move with a rejection (and sometimes drops the pipe).
+	if insertAt > 0 {
+		registered := 0
+		for _, rr := range s.store.Snapshot().Rules {
+			if rr.EngineID != 0 {
+				registered++
+			}
+		}
+		if insertAt > registered {
+			insertAt = 0
+		}
+	}
+
 	err = s.engine(func(c *pbproto.Client) error {
 		spec := ruleSpec(s.store.Snapshot(), out)
-		if out.EngineID == 0 {
-			id, err := c.AddRule(spec)
-			if err != nil {
+		replaceAt := 0
+		if out.EngineID != 0 {
+			err := c.EditRule(out.EngineID, spec)
+			if err == nil {
+				if out.Enabled {
+					return c.EnableRule(out.EngineID)
+				}
+				return c.DisableRule(out.EngineID)
+			}
+			if !errors.Is(err, pbproto.ErrRejected) {
 				return err
 			}
-			s.setRuleEngineID(out.Key, id)
-			out.EngineID = id
-			if insertAt > 0 {
-				if err := c.MoveRule(id, uint32(insertAt)); err != nil {
-					return err
-				}
+			// This engine build answers EditRule with 0 and keeps the old spec,
+			// so replace the rule: delete it, add the new one and put it back
+			// where it was.
+			if p, posErr := c.RulePosition(out.EngineID); posErr == nil {
+				replaceAt = int(p)
 			}
-			return nil
+			if err := c.DeleteRule(out.EngineID); err != nil {
+				return err
+			}
+			s.setRuleEngineID(out.Key, 0)
+			out.EngineID = 0
 		}
-		if err := c.EditRule(out.EngineID, spec); err != nil {
+		id, err := c.AddRule(spec)
+		if err != nil {
 			return err
 		}
-		if out.Enabled {
-			if err := c.EnableRule(out.EngineID); err != nil {
-				return err
+		s.setRuleEngineID(out.Key, id)
+		out.EngineID = id
+		move := insertAt
+		if move == 0 {
+			move = replaceAt
+		}
+		if move > 0 {
+			if err := c.MoveRule(id, uint32(move)); err != nil {
+				// The rule itself is saved; a rejected position only costs the
+				// ordering, so keep it instead of failing the whole save.
+				s.logf("rule %s: move to %d rejected: %v", out.Key, move, err)
 			}
-		} else {
-			if err := c.DisableRule(out.EngineID); err != nil {
+		}
+		if !out.Enabled {
+			if err := c.DisableRule(id); err != nil {
 				return err
 			}
 		}
@@ -747,13 +780,17 @@ func (s *Session) Reorder(keys []string) error {
 		return err
 	}
 	return s.engine(func(c *pbproto.Client) error {
-		for i, id := range ids {
+		// Positions must be dense among the rules the engine actually knows:
+		// skipping a rule without an id must not leave a hole in the sequence.
+		pos := uint32(1)
+		for _, id := range ids {
 			if id == 0 {
 				continue
 			}
-			if err := c.MoveRule(id, uint32(i+1)); err != nil {
+			if err := c.MoveRule(id, pos); err != nil {
 				return err
 			}
+			pos++
 		}
 		return nil
 	})

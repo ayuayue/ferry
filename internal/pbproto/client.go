@@ -18,7 +18,24 @@ var (
 	ErrClosed    = errors.New("pbproto: connection closed")
 	ErrTimeout   = errors.New("pbproto: the engine did not answer")
 	ErrRejected  = errors.New("pbproto: the engine rejected the request")
+	// ErrDisconnected means the control pipe died underneath us. The service
+	// closes it when a rule move points past the end of its rule list.
+	ErrDisconnected = errors.New("pbproto: the engine connection was lost")
 )
+
+// pipeError tags a dead control pipe so callers can tell it apart from a
+// request the service refused.
+func pipeError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, windows.ERROR_BROKEN_PIPE) ||
+		errors.Is(err, windows.ERROR_INVALID_HANDLE) ||
+		errors.Is(err, windows.ERROR_NO_DATA) {
+		return fmt.Errorf("%w: %v", ErrDisconnected, err)
+	}
+	return err
+}
 
 const callTimeout = 8 * time.Second
 
@@ -200,7 +217,7 @@ func (c *Client) call(op Op, body func(*enc)) ([]byte, error) {
 	select {
 	case r := <-ch:
 		if r.err != nil {
-			return nil, r.err
+			return nil, pipeError(r.err)
 		}
 		return r.b, nil
 	case <-time.After(callTimeout):
