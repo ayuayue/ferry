@@ -71,12 +71,12 @@ export function TitleBar({
       <div className="brand">
         <span className="mark" aria-hidden="true">
           <svg viewBox="0 0 18 18" fill="currentColor">
-            <rect x="6.8" y="3.2" width="4.4" height="3" rx="1.5" />
-            <rect x="5.3" y="7.1" width="7.4" height="3.2" rx="1.6" />
-            <rect x="3.7" y="11" width="10.6" height="3.4" rx="1.7" />
+            <rect x="5" y="5.2" width="5.8" height="3.4" rx="0.9" />
+            <rect x="11.3" y="6.2" width="1.7" height="2.4" rx="0.4" />
+            <path d="M2.8 8.6h12.4l-1.8 4.2H4.6z" />
           </svg>
         </span>
-        Cairn
+        Ferry
       </div>
       <button className="engine-pill" onClick={onStatus} title="引擎状态">
         <span className={view.connected ? "pulse" : "dot idle"} />

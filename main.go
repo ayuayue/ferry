@@ -191,9 +191,56 @@ func dataDir() string {
 		return dir
 	}
 	if dir, err := os.UserConfigDir(); err == nil {
-		return filepath.Join(dir, "PBDeck")
+		return filepath.Join(dir, "Ferry")
 	}
 	return "."
+}
+
+// migrateLegacyData copies the settings written by the pre-rename builds the
+// first time the app starts under its new name, so rules and preferences
+// survive the rename. It never overwrites files that already exist.
+func migrateLegacyData(dir string) {
+	if _, err := os.Stat(filepath.Join(dir, "settings.json")); err == nil {
+		return
+	}
+	base, err := os.UserConfigDir()
+	if err != nil {
+		return
+	}
+	for _, legacy := range []string{"PBDeck Dev", "PBDeck"} {
+		src := filepath.Join(base, legacy)
+		entries, err := os.ReadDir(src)
+		if err != nil {
+			continue
+		}
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			log.Printf("migrate: %v", err)
+			return
+		}
+		copied := 0
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+			dst := filepath.Join(dir, entry.Name())
+			if _, err := os.Stat(dst); err == nil {
+				continue
+			}
+			b, err := os.ReadFile(filepath.Join(src, entry.Name()))
+			if err != nil {
+				continue
+			}
+			if err := os.WriteFile(dst, b, 0o600); err != nil {
+				log.Printf("migrate %s: %v", entry.Name(), err)
+				continue
+			}
+			copied++
+		}
+		if copied > 0 {
+			log.Printf("migrated %d file(s) from %s", copied, src)
+			return
+		}
+	}
 }
 
 // engineDir finds the bundled engine next to the executable, in the source
@@ -250,6 +297,7 @@ func main() {
 		runElevatedTask(arg)
 	}
 
+	migrateLegacyData(dataDir())
 	store, err := model.Open(filepath.Join(dataDir(), "settings.json"))
 	if err != nil {
 		log.Fatalf("settings: %v", err)
@@ -269,7 +317,7 @@ func main() {
 		}
 		launchedAtLogin := mygo.App.WasOpenedAtLogin()
 		win := mygo.NewWindow(mygo.WindowOptions{
-			Title:           "Cairn",
+			Title:           "Ferry",
 			Width:           1240,
 			Height:          800,
 			MinWidth:        980,
@@ -295,9 +343,9 @@ func main() {
 		}
 		tray, err := mygo.NewTray(mygo.TrayOptions{
 			Icon:    trayIcon,
-			ToolTip: "Cairn — 代理规则控制台",
+			ToolTip: "Ferry — 代理规则控制台",
 			Menu: mygo.NewMenu([]*mygo.MenuItem{
-				{Label: "显示 Cairn", Click: func(*mygo.MenuItem, *mygo.Window) { focus() }},
+				{Label: "显示 Ferry", Click: func(*mygo.MenuItem, *mygo.Window) { focus() }},
 				mygo.Separator(),
 				{Label: "退出", Role: mygo.RoleQuit},
 			}),

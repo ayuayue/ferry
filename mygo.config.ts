@@ -1,8 +1,8 @@
 import { defineConfig } from "mygo-cli";
 
 export default defineConfig({
-  name: "PBDeck",
-  identifier: "app.pbdeck.desktop",
+  name: "Ferry",
+  identifier: "app.ferry.desktop",
   version: "0.1.0",
   // `mygo dev` runs devCommand and loads devUrl; `mygo build` runs
   // buildCommand and embeds frontendDist into the app.
