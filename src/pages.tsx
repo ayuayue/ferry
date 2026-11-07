@@ -1548,7 +1548,7 @@ export function SettingsPage({
               )}
             </div>
             <div className="tip">
-              安装需要管理员权限（会弹出 UAC）。服务名固定为 ProxyBridgeSvc，与官方 ProxyBridge 共存时会被替换。
+              安装需要管理员权限（会弹出 UAC）。官方 ProxyBridge 正在运行时不能安装或启动，请先完全退出官方应用并停止其引擎服务。Ferry 正常使用不需要管理员权限。
             </div>
           </div>
         </div>

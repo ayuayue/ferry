@@ -7,7 +7,7 @@
     "build": "mygo build",
     "generate": "mygo generate",
     "dev:web": "vite",
-    "build:web": "tsc --noEmit && vite build",
+    "build:web": "node scripts/build-engine-setup.mjs && tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

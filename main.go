@@ -297,6 +297,12 @@ func main() {
 		runElevatedTask(arg)
 	}
 
+	if err := svc.CheckOfficialConflict(); err != nil {
+		log.Printf("startup blocked: %v", err)
+		svc.ShowStartupError(err.Error())
+		os.Exit(1)
+	}
+
 	migrateLegacyData(dataDir())
 	store, err := model.Open(filepath.Join(dataDir(), "settings.json"))
 	if err != nil {

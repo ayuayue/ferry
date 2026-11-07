@@ -102,6 +102,9 @@ var EngineFiles = []string{"ProxyBridgeCore.dll", "ProxyBridgeSvc.exe", "WinDive
 // Install registers and starts the service from dir. It must run elevated.
 // The steps mirror the upstream NSIS installer.
 func Install(dir string) error {
+	if err := guardOfficialInstall(); err != nil {
+		return err
+	}
 	for _, f := range EngineFiles {
 		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
 			return fmt.Errorf("engine file missing: %s", f)
@@ -112,7 +115,7 @@ func Install(dir string) error {
 	}
 	exe := filepath.Join(dir, "ProxyBridgeSvc.exe")
 
-	logf, _ := os.OpenFile(filepath.Join(os.TempDir(), "pbdeck-install.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	logf, _ := os.OpenFile(filepath.Join(os.TempDir(), "ferry-engine-install.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	logStep := func(format string, args ...any) {
 		line := fmt.Sprintf(format, args...)
 		if logf != nil {
@@ -132,10 +135,10 @@ func Install(dir string) error {
 
 	run("sc.exe", "stop", Name) // may fail when absent; that is fine
 	run("sc.exe", "delete", Name)
-	if _, err := run("sc.exe", "create", Name, "binPath=", `"`+exe+`"`, "start=", "auto", "DisplayName=", "PBDeck Engine"); err != nil {
+	if _, err := run("sc.exe", "create", Name, "binPath=", `"`+exe+`"`, "start=", "auto", "DisplayName=", "Ferry Engine"); err != nil {
 		return fmt.Errorf("sc create: %w", err)
 	}
-	run("sc.exe", "description", Name, "Privileged traffic-redirection engine for PBDeck (ProxyBridge core).")
+	run("sc.exe", "description", Name, "Privileged traffic-redirection engine for Ferry (ProxyBridge core).")
 	run("sc.exe", "sdset", Name, SDDL)
 
 	// Grants the console user access to the pipes and writes its SID for the

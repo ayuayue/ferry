@@ -41,8 +41,9 @@ Windows 上的代理拦截器外壳：复用 [InterceptSuite/ProxyBridge](https:
 - **选择正在运行的应用**：按名称/路径/PID 搜索，显示实例数、PID 与真实图标。
 - **托盘与自启**：关闭窗口收进托盘，单击托盘恢复；设置页可开机自启（登录后静默启动）。
 - **亮/暗主题**：默认亮色，跟随按钮切换，选择会持久化。
-- **服务安装**：设置页一键注册/卸载 `ProxyBridgeSvc`（弹 UAC），显示服务状态、
-  引擎文件完整性、数据路径；未安装时界面给出引导，而不是假数据。
+- **服务安装**：安装器会注册随包的 `ProxyBridgeSvc`（只提升安装助手的权限），设置页也可重装；显示服务状态、引擎文件完整性、数据路径；未安装时界面给出引导，而不是假数据。
+- **官方实例冲突保护**：按官方安装记录与进程完整路径识别。官方 GUI、CLI 或引擎正在运行时拒绝启动，也不会替换其服务；停止后可正常安装。Ferry 自己的引擎不会误报。
+- **发布产物**：GitHub Actions 在 `windows-latest` 构建安装器和包含引擎的便携 ZIP，推送 `v*.*.*` 标签时上传 Release。只交付可实际代理的 Windows x64 版本，不提供无功能的跨平台壳。
 
 ## 开发
 
@@ -59,8 +60,9 @@ npm run dev           # mygo dev：Go 与前端一起热更新
 npm run build         # tsc + vite + go build + NSIS 安装包
 ```
 
-产物在 `build/windows-amd64/`：`PBDeck.exe`、`engine/win/amd64/`（四个引擎文件）与
-`pbdeck-setup-0.1.0-amd64.exe`。
+产物在 `build/windows-amd64/`：`Ferry.exe`、`engine/win/amd64/`（四个引擎文件）与
+`ferry-setup-1.0.0-amd64.exe`。安装器会检查系统 WebView2；缺失时提供微软官方下载入口，
+不会假装已附带运行库。便携 ZIP 必须完整解压，不能只复制 exe。
 
 ## 目录
 
@@ -69,8 +71,8 @@ npm run build         # tsc + vite + go build + NSIS 安装包
 | `main.go` | mygo 窗口、托盘、绑定给前端的 API、引擎目录解析、提权安装入口 |
 | `internal/pbproto/` | 协议 v6 编解码、命名管道客户端（ctl 消息模式 + evt 字节流分帧） |
 | `internal/session/` | 连接生命周期、规则重放、事件环形缓冲、流轮询、右键建规则 |
-| `internal/model/` | 应用侧持久化（`%AppData%\PBDeck\settings.json`，含主题/页面） |
-| `internal/svc/` | 服务查询与安装/卸载（`sc` + `--setup-users`），UAC 提权 |
+| `internal/model/` | 应用侧持久化（`%AppData%\Ferry\settings.json`，含主题/页面） |
+| `internal/svc/` | 服务查询与安装/卸载、官方实例冲突识别、UAC 提示 |
 | `internal/procattr/` | 进程枚举、exe 图标转 PNG |
 | `src/` | React 界面（连接 / 实时日志 / 规则 / 代理 / 设置） |
 | `resources/engine/win/amd64/` | 上游 4.3.0 二进制（MIT，见同目录 LICENSE） |
@@ -83,7 +85,7 @@ npm run build         # tsc + vite + go build + NSIS 安装包
 - 日志事件只带目标 IP；域名列在有对应会话时补全，否则显示 IP。
 - UDP 仅在代理类型为 SOCKS5 时转发，HTTP 配置下的 UDP 会被引擎回退为直连。
 - 域名规则依赖明文 DNS 嗅探，DoH/DoT 场景只按 IP 命中。
-- 服务名固定为 `ProxyBridgeSvc`，与官方 ProxyBridge 安装包共存时会互相替换。
-- 安装/卸载服务需要管理员。
+- 服务名固定为 `ProxyBridgeSvc`；官方实例正在运行时 Ferry 会退出，停止后才允许替换服务。
+- 只有安装/卸载服务的小助手需要管理员，正常 Ferry 不需要。
 
 ## 许可

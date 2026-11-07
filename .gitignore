@@ -1,5 +1,7 @@
 node_modules/
 /dist/
+/resources/engine-setup.exe
 /build/
 /.mygo/
 mygo_windows_*.syso
+/cmd/engine-setup/*.syso
