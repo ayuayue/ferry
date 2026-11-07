@@ -631,16 +631,11 @@ export function LiveLogPage({
   const [group, setGroup] = useState<LiveGroup>("none");
   const [follow, setFollow] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const newest = events[0]?.seq ?? 0;
 
   const rows = useMemo(
     () => filterEvents(view, events, q, action),
     [view, events, q, action],
   );
-
-  useEffect(() => {
-    if (follow && scrollRef.current) scrollRef.current.scrollTop = 0;
-  }, [follow, newest]);
 
   const vrows = useMemo(() => (group === "none" ? rows : []), [rows, group]);
   const virt = useVirtualizer({
@@ -649,6 +644,20 @@ export function LiveLogPage({
     estimateSize: () => 40,
     overscan: 16,
   });
+
+  // Following pins the newest row to the top. With following off a new event
+  // still prepends a row, so shift the offset by the height the list grew and
+  // the entries under the cursor stay put instead of jumping.
+  const totalSize = virt.getTotalSize();
+  const prevTotal = useRef(0);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const grew = totalSize - prevTotal.current;
+    prevTotal.current = totalSize;
+    if (follow) el.scrollTop = 0;
+    else if (grew > 0) el.scrollTop += grew;
+  }, [totalSize, follow]);
 
   const grouped = useMemo(
     () => (group === "none" ? [] : groupEvents(rows, group, (e) => displayHost(e, view.flows))),

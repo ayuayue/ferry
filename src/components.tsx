@@ -6,6 +6,8 @@ import {
   ArrowUpRight,
   Check,
   ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   CircleDot,
   FolderOpen,
   GripVertical,
@@ -70,7 +72,6 @@ export function TitleBar({
         <span className="mark" />
         PBDeck
       </div>
-      <div className="spacer" />
       <button className="engine-pill" onClick={onStatus} title="引擎状态">
         <span className={view.connected ? "pulse" : "dot idle"} />
         <b>{mode}</b>
@@ -117,11 +118,15 @@ export function Rail({
   onPage,
   view,
   eventsCount = 0,
+  collapsed,
+  onToggle,
 }: {
   page: Page;
   onPage: (p: Page) => void;
   view: View;
   eventsCount?: number;
+  collapsed: boolean;
+  onToggle: () => void;
 }) {
   const counts: Record<Page, number | null> = {
     connections: view.stats.flows || null,
@@ -131,16 +136,29 @@ export function Rail({
     settings: null,
   };
   return (
-    <nav className="rail">
-      <div className="group-label">控制台</div>
+    <nav className={clsx("rail", collapsed && "collapsed")}>
+      <div className="rail-head">
+        <span className="group-label">控制台</span>
+        <button
+          className="rail-toggle"
+          onClick={onToggle}
+          title={collapsed ? "展开侧栏" : "折叠侧栏"}
+          aria-label={collapsed ? "展开侧栏" : "折叠侧栏"}
+          aria-expanded={!collapsed}
+        >
+          {collapsed ? <ChevronsRight size={14} /> : <ChevronsLeft size={14} />}
+        </button>
+      </div>
       {NAV.map((n) => (
         <button
           key={n.id}
           className={clsx("nav-item", page === n.id && "active")}
           onClick={() => onPage(n.id)}
+          title={collapsed ? n.label : undefined}
+          aria-label={n.label}
         >
           {n.icon}
-          {n.label}
+          <span className="lbl">{n.label}</span>
           {counts[n.id] ? <span className="count">{counts[n.id]}</span> : null}
         </button>
       ))}
@@ -332,6 +350,9 @@ export function Toasts({ items, onDone }: { items: Toast[]; onDone: (id: number)
             <b>{t.title}</b>
             {t.detail && <span>{t.detail}</span>}
           </div>
+          <button className="x" onClick={() => onDone(t.id)} aria-label="关闭提示">
+            <X size={13} />
+          </button>
         </div>
       ))}
     </div>

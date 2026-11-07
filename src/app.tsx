@@ -60,6 +60,7 @@ export default function App() {
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [page, setPage] = useState<Page>("connections");
   const [theme, setTheme] = useState<Theme>("light");
+  const [railCollapsed, setRailCollapsed] = useState(false);
   const [events, setEvents] = useState<LogEvent[]>([]);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -108,6 +109,7 @@ export default function App() {
         hydrated.current = true;
         if (v.ui.theme === "dark" || v.ui.theme === "light") setTheme(v.ui.theme);
         if (v.ui.page) setPage(v.ui.page as Page);
+        setRailCollapsed(!!v.ui.compact);
       }
     } catch (e) {
       fails.current += 1;
@@ -161,10 +163,10 @@ export default function App() {
   // page change keeps a restart on the same tab.
   useEffect(() => {
     if (!hydrated.current) return;
-    const cur = { ...view.ui, page, theme };
-    if (cur.page === view.ui.page && cur.theme === view.ui.theme) return;
+    const cur = { ...view.ui, page, theme, compact: railCollapsed };
+    if (cur.page === view.ui.page && cur.theme === view.ui.theme && cur.compact === view.ui.compact) return;
     api.saveUI(cur).catch(() => undefined);
-  }, [page, theme, view.ui]);
+  }, [page, theme, railCollapsed, view.ui]);
 
   const toggleTheme = useCallback(() => {
     setTheme((t) => (t === "light" ? "dark" : "light"));
@@ -233,7 +235,14 @@ export default function App() {
     <div className="shell">
       <TitleBar view={view} theme={theme} onTheme={toggleTheme} onStatus={() => setPage("settings")} />
       <div className="body">
-        <Rail page={page} view={view} eventsCount={events.length} onPage={setPage} />
+        <Rail
+          page={page}
+          view={view}
+          eventsCount={events.length}
+          onPage={setPage}
+          collapsed={railCollapsed}
+          onToggle={() => setRailCollapsed((v) => !v)}
+        />
         <main className="pb-main">
           {page === "connections" && (
             <ConnectionsPage

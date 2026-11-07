@@ -101,8 +101,13 @@ func Open(path string) (*Store, error) {
 func (st *Store) Path() string { return st.path }
 
 func (st *Store) normalize() {
-	if st.s.Version == 0 {
-		st.s.Version = 1
+	if st.s.Version < 2 {
+		// The console now defaults all three engine switches to on; profiles
+		// written by earlier builds stored them explicitly as off.
+		st.s.Version = 2
+		st.s.Engine.TrafficLog = true
+		st.s.Engine.LogAll = true
+		st.s.Engine.AutoStart = true
 	}
 	if st.s.Proxies == nil {
 		st.s.Proxies = []Proxy{}
@@ -121,6 +126,11 @@ func (st *Store) normalize() {
 	for i := range st.s.Rules {
 		if st.s.Rules[i].Key == "" {
 			st.s.Rules[i].Key = NewKey()
+		}
+		// A proxy rule with no upstream can never be pushed (ProxyID 0 is
+		// rejected by the engine); bind it to the first proxy.
+		if st.s.Rules[i].Action == pbproto.ActionProxy && st.s.Rules[i].ProxyKey == "" && len(st.s.Proxies) > 0 {
+			st.s.Rules[i].ProxyKey = st.s.Proxies[0].Key
 		}
 	}
 }
@@ -177,10 +187,10 @@ func NewKey() string {
 // presents invented hosts as if they were traffic.
 func initial() Settings {
 	return Settings{
-		Version: 1,
+		Version: 2,
 		Proxies: []Proxy{},
 		Rules:   []Rule{},
-		Engine:  EnginePrefs{Enabled: true},
+		Engine:  EnginePrefs{Enabled: true, TrafficLog: true, LogAll: true, AutoStart: true},
 		UI:      UIState{Page: "connections", Theme: "light"},
 	}
 }

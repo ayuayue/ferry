@@ -260,6 +260,13 @@ func main() {
 	mygo.Bind(api)
 
 	mygo.App.WhenReady(func() {
+		// Older profiles turned auto-start off by default, so the stored flag and
+		// the OS login item drifted apart; re-register it when it is wanted.
+		if st := store.Snapshot(); st.Engine.AutoStart && !mygo.App.OpenAtLogin() {
+			if err := mygo.App.SetOpenAtLogin(true); err != nil {
+				log.Printf("autostart: %v", err)
+			}
+		}
 		launchedAtLogin := mygo.App.WasOpenedAtLogin()
 		win := mygo.NewWindow(mygo.WindowOptions{
 			Title:           "PBDeck",
@@ -269,7 +276,7 @@ func main() {
 			MinHeight:       600,
 			Frameless:       true,
 			CornerRadius:    12,
-			BackgroundColor: "light-dark(#f4f5f7, #0d0f13)",
+			BackgroundColor: "light-dark(#f5f4ed, #141413)",
 			StateKey:        "main",
 			URL:             "/",
 			Hidden:          launchedAtLogin,

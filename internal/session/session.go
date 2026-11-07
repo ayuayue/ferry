@@ -557,6 +557,19 @@ func (s *Session) SaveRule(r model.Rule, insertAt int) (model.Rule, error) {
 	}
 
 	var out model.Rule
+	// A proxy rule needs an upstream the engine knows. Rules saved without one
+	// (including rules created from a direct connection) fall back to the first
+	// proxy; with no proxy at all the engine would reject the request, so answer
+	// with something the user can act on instead.
+	if r.Action == pbproto.ActionProxy {
+		st := s.store.Snapshot()
+		if r.ProxyKey == "" && len(st.Proxies) > 0 {
+			r.ProxyKey = st.Proxies[0].Key
+		}
+		if r.ProxyKey == "" {
+			return r, errors.New("请先在「代理」页添加一个上游代理，再保存这条规则")
+		}
+	}
 	err := s.store.Update(func(st *model.Settings) error {
 		if r.Key == "" {
 			r.Key = model.NewKey()
@@ -621,9 +634,13 @@ func (s *Session) SaveRule(r model.Rule, insertAt int) (model.Rule, error) {
 }
 
 func ruleSpec(st model.Settings, r model.Rule) pbproto.RuleSpec {
+	key := r.ProxyKey
+	if key == "" && r.Action == pbproto.ActionProxy && len(st.Proxies) > 0 {
+		key = st.Proxies[0].Key
+	}
 	var proxyID uint32
 	for _, p := range st.Proxies {
-		if p.Key == r.ProxyKey {
+		if p.Key == key {
 			proxyID = p.EngineID
 			break
 		}

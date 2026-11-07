@@ -126,8 +126,8 @@ input, textarea { user-select: text; }
   height: 44px;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 0 0 0 74px;
+  gap: 10px;
+  padding: 0 0 0 10px;
   border-bottom: 1px solid var(--line-soft);
   background: var(--bg);
   flex: none;
@@ -217,6 +217,25 @@ input, textarea { user-select: text; }
   color: var(--faint);
   padding: 12px 10px 6px;
 }
+
+.rail-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 4px 6px 10px; }
+.rail-head .group-label { padding: 0; }
+.rail-toggle {
+  width: 22px; height: 22px; flex: none;
+  display: grid; place-items: center;
+  border-radius: 6px; color: var(--faint);
+  transition: background 130ms, color 130ms;
+}
+.rail-toggle:hover { background: var(--panel-2); color: var(--text); }
+
+.rail.collapsed { width: 58px; padding: 14px 8px 12px; }
+.rail.collapsed .rail-head { justify-content: center; padding: 12px 0 6px; }
+.rail.collapsed .group-label,
+.rail.collapsed .lbl,
+.rail.collapsed .count,
+.rail.collapsed .rail-foot { display: none; }
+.rail.collapsed .nav-item { justify-content: center; gap: 0; padding: 0; }
+.rail.collapsed .nav-item.active::before { left: -8px; }
 
 .nav-item {
   display: flex;
@@ -786,7 +805,7 @@ main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .pick-row .pth { font-family: var(--mono); font-size: 10.5px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: ltr; text-align: left; }
 .pick-row .meta { margin-left: auto; font-size: 10.5px; color: var(--faint); font-family: var(--mono); flex: none; }
 
-.toasts { position: fixed; right: 18px; bottom: 18px; z-index: 80; display: flex; flex-direction: column; gap: 8px; }
+.toasts { position: fixed; right: 16px; top: 56px; z-index: 80; display: flex; flex-direction: column; gap: 8px; }
 .toast {
   min-width: 260px; max-width: 420px;
   display: flex; align-items: flex-start; gap: 9px;
@@ -802,7 +821,9 @@ main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .toast .body { min-width: 0; }
 .toast .body b { display: block; font-weight: 550; margin-bottom: 1px; }
 .toast .body span { color: var(--dim); font-size: 11.5px; overflow-wrap: anywhere; }
-@keyframes toast-in { from { opacity: 0; transform: translateY(8px) scale(0.98); } }
+.toast .x { margin-left: auto; flex: none; width: 18px; height: 18px; display: grid; place-items: center; border-radius: 5px; color: var(--faint); }
+.toast .x:hover { background: var(--panel-3); color: var(--text); }
+@keyframes toast-in { from { opacity: 0; transform: translateY(-8px) scale(0.98); } }
 
 /* misc */
 
@@ -1055,11 +1076,17 @@ main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
   cursor: pointer;
   user-select: none;
 }
-.row.proc-row.open { background: var(--panel); border-bottom-color: var(--line-soft); }
+.row.proc-row.open {
+  background: var(--panel);
+  border-bottom-color: transparent;
+  box-shadow: inset 0 -1px 0 var(--line-soft), 0 10px 20px rgb(var(--shadow-rgb) / .06);
+  position: relative;
+  z-index: 1;
+}
 .row.proc-row.sel { background: color-mix(in srgb, var(--violet) 8%, transparent); }
 .row.pick-row:hover .nm { color: var(--accent); }
 
-.proc.big { align-items: center; gap: 10px; }
+.proc.big { display: flex; align-items: center; gap: 10px; }
 .proc.big .nm {
   font-family: var(--mono);
   font-size: 12.5px;
