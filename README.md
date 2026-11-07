@@ -1,4 +1,6 @@
-# PBDeck
+# Cairn
+
+> 品牌名 Cairn（石堆路标），开发代号 PBDeck：可执行文件、安装包与数据目录暂时仍用 PBDeck。
 
 Windows 上的代理拦截器外壳：复用 [InterceptSuite/ProxyBridge](https://github.com/InterceptSuite/ProxyBridge)
 4.3.0 的内核（WinDivert + `ProxyBridgeCore.dll`），用
@@ -21,7 +23,7 @@ Windows 上的代理拦截器外壳：复用 [InterceptSuite/ProxyBridge](https:
 ```
 
 之所以这么拆：上游 7.6k 行 C 引擎负责抓包/转发，服务与 GUI 之间本来就用命名管道，
-所以换壳不需要碰内核，也不需要重新签名驱动。PBDeck 只做三件事：把规则重放进去、
+所以换壳不需要碰内核，也不需要重新签名驱动。Cairn 只做三件事：把规则重放进去、
 把事件/连接表读出来、把交互做得顺手。
 
 ## 功能

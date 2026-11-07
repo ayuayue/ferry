@@ -154,16 +154,10 @@ input, textarea { user-select: text; }
   border: 0;
   display: grid;
   place-items: center;
+  color: var(--accent-on);
   box-shadow: none;
 }
-.mark::after {
-  content: "";
-  width: 7px;
-  height: 7px;
-  border-radius: 2px;
-  background: var(--accent-on);
-  box-shadow: none;
-}
+.mark svg { display: block; width: 18px; height: 18px; }
 
 .titlebar .spacer { flex: 1; }
 

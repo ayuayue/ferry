@@ -69,8 +69,14 @@ export function TitleBar({
   return (
     <header className="titlebar">
       <div className="brand">
-        <span className="mark" />
-        PBDeck
+        <span className="mark" aria-hidden="true">
+          <svg viewBox="0 0 18 18" fill="currentColor">
+            <rect x="6.8" y="3.2" width="4.4" height="3" rx="1.5" />
+            <rect x="5.3" y="7.1" width="7.4" height="3.2" rx="1.6" />
+            <rect x="3.7" y="11" width="10.6" height="3.4" rx="1.7" />
+          </svg>
+        </span>
+        Cairn
       </div>
       <button className="engine-pill" onClick={onStatus} title="引擎状态">
         <span className={view.connected ? "pulse" : "dot idle"} />

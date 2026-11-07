@@ -1614,7 +1614,7 @@ export function SettingsPage({
           </div>
           <div className="card-body">
             <div className="kv">
-              <span>PBDeck</span>
+              <span>Cairn</span>
               <b>{status?.version || "0.1.0"}</b>
             </div>
             <div className="kv">
@@ -1626,7 +1626,7 @@ export function SettingsPage({
               <b>ProxyBridge 4.3.0（复用）</b>
             </div>
             <div className="tip">
-              内核由 InterceptSuite/ProxyBridge 提供（WinDivert），PBDeck 只做壳与规则编排。
+              内核由 InterceptSuite/ProxyBridge 提供（WinDivert），Cairn 只做壳与规则编排。
             </div>
           </div>
         </div>

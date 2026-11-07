@@ -269,7 +269,7 @@ func main() {
 		}
 		launchedAtLogin := mygo.App.WasOpenedAtLogin()
 		win := mygo.NewWindow(mygo.WindowOptions{
-			Title:           "PBDeck",
+			Title:           "Cairn",
 			Width:           1240,
 			Height:          800,
 			MinWidth:        980,
@@ -295,9 +295,9 @@ func main() {
 		}
 		tray, err := mygo.NewTray(mygo.TrayOptions{
 			Icon:    trayIcon,
-			ToolTip: "PBDeck — 代理规则控制台",
+			ToolTip: "Cairn — 代理规则控制台",
 			Menu: mygo.NewMenu([]*mygo.MenuItem{
-				{Label: "显示 PBDeck", Click: func(*mygo.MenuItem, *mygo.Window) { focus() }},
+				{Label: "显示 Cairn", Click: func(*mygo.MenuItem, *mygo.Window) { focus() }},
 				mygo.Separator(),
 				{Label: "退出", Role: mygo.RoleQuit},
 			}),
