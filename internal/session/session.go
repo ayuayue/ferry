@@ -1139,7 +1139,7 @@ func (s *Session) handle(ev pbproto.Event) {
 	case pbproto.EvtConn:
 		c := ev.Conn
 		e := Event{
-			Kind: "conn", Process: c.Process, PID: c.PID, Host: c.IP, Port: c.Port, Info: c.Info,
+			Kind: "conn", Process: flowName(c.PID, c.Process), PID: c.PID, Host: c.IP, Port: c.Port, Info: c.Info,
 		}
 		s.mu.Lock()
 		for _, f := range s.flows {
@@ -1188,8 +1188,20 @@ func (s *Session) appendEvent(e Event) {
 	s.stats.Events++
 }
 
-func (s *Session) pollFlows(cli *pbproto.Client, stop chan struct{}) {
-	t := time.NewTicker(time.Second)
+// flowName fills in a process name the engine could not resolve. The Linux
+// daemon names short-lived processes from its own scan and falls back to
+// "unknown" or "pid <n>"; Ferry can look the pid up in /proc directly.
+func flowName(pid uint32, name string) string {
+	if name != "" && name != "unknown" && !strings.HasPrefix(name, "pid ") {
+		return name
+	}
+	if n := procattr.NameOf(pid); n != "" {
+		return n
+	}
+	return name
+}
+
+func (s *Session) pollFlows(cli *pbproto.Client, stop chan struct{}) {	t := time.NewTicker(time.Second)
 	defer t.Stop()
 	for {
 		select {
@@ -1216,6 +1228,7 @@ func (s *Session) pollFlows(cli *pbproto.Client, stop chan struct{}) {
 			var up, down uint64
 			for _, f := range flows {
 				fv := FlowView{Flow: f, RuleKey: ruleKey[f.RuleID]}
+				fv.Name = flowName(f.PID, f.Name)
 				if p, ok := proxyByID[f.ProxyID]; ok {
 					fv.ProxyKey, fv.ProxyName = p.Key, p.Name
 				}

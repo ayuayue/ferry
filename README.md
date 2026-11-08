@@ -3,13 +3,13 @@
 > 渡船：把流量从这一岸送到另一岸。源码目录与 Go 模块统一使用 Ferry 命名，
 > 旧版 PBDeck 的配置会在首次启动时自动迁移。
 
-[![Windows build](https://github.com/ayuayue/ferry/actions/workflows/release.yml/badge.svg)](https://github.com/ayuayue/ferry/actions/workflows/release.yml)
+[![Release](https://github.com/ayuayue/ferry/actions/workflows/release.yml/badge.svg)](https://github.com/ayuayue/ferry/actions/workflows/release.yml)
 
 ![Ferry 连接管理界面](docs/assets/ferry-overview.png)
 
-Windows 上的代理拦截器外壳：复用 [InterceptSuite/ProxyBridge](https://github.com/InterceptSuite/ProxyBridge)
-4.3.0 的内核（WinDivert + `ProxyBridgeCore.dll`），用
-[mygo](https://github.com/egoist/mygo)（Go + 系统 WebView）重写界面。
+按进程分流的图形外壳，复用 [InterceptSuite/ProxyBridge](https://github.com/InterceptSuite/ProxyBridge)
+的内核，用 [mygo](https://github.com/egoist/mygo)（Go + 系统 WebView）重写界面。
+支持 **Windows x64**（4.3.0 内核，WinDivert）与 **Linux x64**（4.0.0 内核，eBPF）。
 
 ```
 ┌────────────────────────────┐
@@ -19,15 +19,16 @@ Windows 上的代理拦截器外壳：复用 [InterceptSuite/ProxyBridge](https:
 ┌─────────────▼──────────────┐
 │ Go 层 internal/session      │  规则/代理的真源，重放、事件缓冲、1s 轮询
 └─────────────┬──────────────┘
-              │ \\.\pipe\ProxyBridgeCtl / ProxyBridgeEvt（协议 v6）
+              │ Windows：\\.\pipe\ProxyBridgeCtl / ProxyBridgeEvt（协议 v6）
+              │ Linux  ：/run/proxybridge/ctl.sock（IPC v1）
 ┌─────────────▼──────────────┐
-│ ProxyBridgeSvc（LocalSystem）│  未修改的上游服务，提权、持有驱动
+│ ProxyBridgeSvc / ferry-engine.service │  未修改的上游引擎，提权、持有驱动
 └─────────────┬──────────────┘
               │
-        ProxyBridgeCore.dll + WinDivert
+        ProxyBridgeCore.dll + WinDivert ／ libproxybridge + eBPF
 ```
 
-之所以这么拆：上游 7.6k 行 C 引擎负责抓包/转发，服务与 GUI 之间本来就用命名管道，
+之所以这么拆：上游 7.6k 行 C 引擎负责抓包/转发，服务与界面之间本来就有进程间通信，
 所以换壳不需要碰内核，也不需要重新签名驱动。Ferry 只做三件事：把规则重放进去、
 把事件/连接表读出来、把交互做得顺手。
 
@@ -45,9 +46,9 @@ Windows 上的代理拦截器外壳：复用 [InterceptSuite/ProxyBridge](https:
 - **选择正在运行的应用**：按名称/路径/PID 搜索，显示实例数、PID 与真实图标。
 - **托盘与自启**：关闭窗口收进托盘，单击托盘恢复；设置页可开机自启（登录后静默启动）。
 - **亮/暗主题**：默认亮色，跟随按钮切换，选择会持久化。
-- **服务安装**：安装器会注册随包的 `ProxyBridgeSvc`（只提升安装助手的权限），设置页也可重装；显示服务状态、引擎文件完整性、数据路径；未安装时界面给出引导，而不是假数据。
+- **服务安装**：安装器会注册随包的引擎（Windows 只提升安装助手的权限；Linux 通过 pkexec/sudo 装成独立的 `ferry-engine.service`），设置页也可重装；显示服务状态、引擎文件完整性、数据路径；未安装时界面给出引导，而不是假数据。
 - **官方实例冲突保护**：按官方安装记录与进程完整路径识别。官方 GUI、CLI 或引擎正在运行时拒绝启动，也不会替换其服务；停止后可正常安装。Ferry 自己的引擎不会误报。
-- **发布产物**：GitHub Actions 在 `windows-latest` 构建安装器和包含引擎的便携 ZIP，推送 `v*.*.*` 标签时上传 Release。只交付可实际代理的 Windows x64 版本，不提供无功能的跨平台壳。
+- **发布产物**：GitHub Actions 在 `windows-latest` 与 `ubuntu-latest` 分别构建 Windows 安装器 + 便携 ZIP、Linux `.deb` + `.tar.gz`，推送 `v*.*.*` 标签时上传 Release；任一平台缺产物就不发布。
 
 ## 开发
 
@@ -65,45 +66,69 @@ npm run build         # tsc + vite + go build + NSIS 安装包
 ```
 
 产物在 `build/windows-amd64/`：`Ferry.exe`、`engine/win/amd64/`（四个引擎文件）与
-`ferry-setup-1.0.0-amd64.exe`。安装器会检查系统 WebView2；缺失时提供微软官方下载入口，
+`ferry-setup-1.1.0-amd64.exe`。安装器会检查系统 WebView2；缺失时提供微软官方下载入口，
 不会假装已附带运行库。便携 ZIP 必须完整解压，不能只复制 exe。
+
+```sh
+npx mygo build -platform linux/amd64     # 产物在 build/linux-amd64/
+bash scripts/package-linux.sh            # 生成 .deb 与 .tar.gz（裁掉 Windows 资源、补 /usr/bin 与图标）
+```
+
+Linux 需要 `libgtk-3-0` 与 `libwebkit2gtk-4.1-0`；首次使用要在设置页装一次引擎
+（或 `sudo ferry --install-engine`）。单元内容、权限模型与排障见 [docs/linux.md](docs/linux.md)。
 
 ## 目录
 
 | 路径 | 用途 |
 |---|---|
 | `main.go` | mygo 窗口、托盘、绑定给前端的 API、引擎目录解析、提权安装入口 |
-| `internal/pbproto/` | 协议 v6 编解码、命名管道客户端（ctl 消息模式 + evt 字节流分帧） |
+| `internal/pbproto/` | 协议编解码与客户端：`client_windows.go` 命名管道（v6）、`client_linux.go` Unix 套接字（IPC v1） |
 | `internal/session/` | 连接生命周期、规则重放、事件环形缓冲、流轮询、右键建规则 |
-| `internal/model/` | 应用侧持久化（`%AppData%\Ferry\settings.json`，含主题/页面） |
-| `internal/svc/` | 服务查询与安装/卸载、官方实例冲突识别、UAC 提示 |
-| `internal/procattr/` | 进程枚举、exe 图标转 PNG |
+| `internal/model/` | 应用侧持久化（`%AppData%\Ferry\settings.json` / `~/.config/ferry/settings.json`） |
+| `internal/svc/` | 服务查询与安装/卸载、官方实例冲突识别；Windows 用 SCM + UAC，Linux 用 systemd + pkexec |
+| `internal/procattr/` | 进程枚举（Windows 含 exe 图标转 PNG，Linux 读 `/proc`） |
 | `src/` | React 界面（连接 / 实时日志 / 规则 / 代理 / 设置） |
-| `resources/engine/win/amd64/` | 上游 4.3.0 二进制（MIT，见同目录 LICENSE） |
-| `docs/protocol.md` | 管道协议与安装步骤备忘 |
+| `resources/engine/win/amd64/` | Windows 引擎（上游 4.3.0，MIT，见同目录 LICENSE） |
+| `resources/engine/linux/amd64/` | Linux 引擎（上游 4.0.0，MIT，见同目录 LICENSE） |
+| `scripts/package-linux.sh` | 裁资源、装 `/usr/bin` 与图标、生成 deb 与 tar.gz |
+| `docs/protocol.md` | Windows 管道协议与安装步骤备忘 |
+| `docs/linux.md` | Linux 单元、权限模型、平台差异与排障 |
 
 ## 限制
 
-- 只支持 Windows：引擎依赖 WinDivert 与服务。
 - 引擎只把**走代理**的流放进连接表；直连/阻断的连接只出现在日志里。
 - 日志事件只带目标 IP；域名列在有对应会话时补全，否则显示 IP。
-- UDP 仅在代理类型为 SOCKS5 时转发，HTTP 配置下的 UDP 会被引擎回退为直连。
 - 域名规则依赖明文 DNS 嗅探，DoH/DoT 场景只按 IP 命中。
+
+### Windows
+
+- 引擎依赖 WinDivert 与服务，只有 x64 版本。
+- UDP 仅在代理类型为 SOCKS5 时转发，HTTP 配置下的 UDP 会被引擎回退为直连。
 - 服务名固定为 `ProxyBridgeSvc`；官方实例正在运行时 Ferry 会退出，停止后才允许替换服务。
 - 只有安装/卸载服务的小助手需要管理员，正常 Ferry 不需要。
+
+### Linux
+
+- 需要 eBPF：内核 ≥ 5.11、BTF、cgroup v2；只有 x64 版本。
+- 引擎不回报「这条会话命中了哪条规则」，连接页该列显示 `—`。
+- HTTP 代理不承载 UDP，这类规则的 UDP 部分回退直连（SOCKS5 正常）。
+- 存活极短的进程可能只留下 `pid <n>` 占位名；Ferry 会尝试用 `/proc` 补回。
+- 托盘图标需要 `libayatana-appindicator3`，缺失时不建托盘，主窗口照常工作。
+- 中文显示依赖系统字体，精简系统需装 `fonts-noto-cjk`（deb 已列为 `Recommends`）。
 
 ## 许可
 
 Ferry 自有代码以 [MIT](LICENSE) 发布，不替代各第三方组件原有的许可。
 
-随包的 ProxyBridge 4.3.0 为 MIT，原始许可保存在引擎目录的
-`LICENSE.ProxyBridge.txt`；其中的 WinDivert 2.2.2 DLL/驱动单独按照上游的
-LGPL-3.0-or-later 选项再分发，原始许可（含可选的 GPL-2.0 文本）保存在
-`LICENSE.WinDivert.txt`。选择 LGPL 不会把 Ferry 自有源码变成 GPL。
+随包的 ProxyBridge 4.3.0（Windows）与 4.0.0（Linux）均为 MIT，原始许可保存在各自
+引擎目录的 `LICENSE.ProxyBridge.txt`。Windows 引擎内的 WinDivert 2.2.2 DLL/驱动
+单独按照上游的 LGPL-3.0-or-later 选项再分发，原始许可（含可选的 GPL-2.0 文本）
+保存在 `LICENSE.WinDivert.txt`；选择 LGPL 不会把 Ferry 自有源码变成 GPL。
+Linux 引擎不包含 WinDivert。
 
 完整来源、版本、对应源码入口与运行时声明随应用放在
 [resources/THIRD_PARTY_NOTICES.md](resources/THIRD_PARTY_NOTICES.md)，
 各依赖的原始许可在 [resources/licenses/](resources/licenses/) 下。
 
 便携包中的 `THIRD_PARTY_NOTICES.md` 位于程序根目录，完整许可文本在其同级的
-`licenses/` 目录；引擎许可则位于 `engine/win/amd64/`。上面链接指向它们的可编辑源文件。
+`licenses/` 目录；引擎许可则位于 `engine/<平台>/<架构>/`。上面链接指向它们的可编辑源文件。

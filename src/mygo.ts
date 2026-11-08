@@ -45,7 +45,7 @@ export interface FlowView {
   proxyName?: string;
 }
 
-/** Process is one running program, deduplicated by executable path. */
+/** Process is one executable with the number of times it is running. */
 export interface Process {
   pid: number;
   name: string;
@@ -149,7 +149,10 @@ export interface Stats {
   replays: number;
 }
 
-/** Status describes the service as the SCM sees it. */
+/**
+ * Status is what the settings page shows about the engine service. The field
+ * names match the Windows build so the page needs no platform branch.
+ */
 export interface Status {
   installed: boolean;
   running: boolean;
@@ -255,7 +258,7 @@ export const API = {
   reorderRules(keys: string[]): Promise<void> {
     return call("API.ReorderRules", keys);
   },
-  /** RevealData opens the data directory in Explorer. */
+  /** RevealData opens the data directory in the platform file manager. */
   revealData(): Promise<void> {
     return call("API.RevealData");
   },

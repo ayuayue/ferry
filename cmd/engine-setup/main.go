@@ -1,3 +1,5 @@
+//go:build windows
+
 // Command engine-setup is the installer's small, elevated service helper.
 package main
 

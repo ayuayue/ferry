@@ -2,11 +2,9 @@ package main
 
 import (
 	_ "embed"
-	"errors"
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 
@@ -18,7 +16,7 @@ import (
 	"github.com/ayuayue/ferry/internal/svc"
 )
 
-const version = "0.1.0"
+const version = "1.1.0"
 
 //go:embed resources/icon.png
 var appIcon []byte
@@ -138,7 +136,7 @@ func (a *API) InstallEngine() error {
 			return err
 		}
 		if st := svc.Query(); !st.Installed {
-			return errors.New("服务未安装：请查看 %TEMP%\\pbdeck-install.log")
+			return errServiceNotInstalled()
 		}
 		return nil
 	}
@@ -176,14 +174,14 @@ func (a *API) SetAutoStart(on bool) error {
 	})
 }
 
-// RevealData opens the data directory in Explorer.
+// RevealData opens the data directory in the platform file manager.
 func (a *API) RevealData() error {
-	return exec.Command("explorer.exe", dataDir()).Start()
+	return openFolder(dataDir())
 }
 
 // RevealEngine opens the folder holding the engine binaries.
 func (a *API) RevealEngine() error {
-	return exec.Command("explorer.exe", engineDir()).Start()
+	return openFolder(engineDir())
 }
 
 func dataDir() string {
@@ -246,7 +244,7 @@ func migrateLegacyData(dir string) {
 // engineDir finds the bundled engine next to the executable, in the source
 // tree during `mygo dev`, or in the installed resources directory.
 func engineDir() string {
-	sep := filepath.Join("engine", "win", "amd64")
+	sep := engineSubdir
 	var candidates []string
 	if exe, err := os.Executable(); err == nil {
 		base := filepath.Dir(exe)
@@ -261,8 +259,9 @@ func engineDir() string {
 	if p, err := mygo.App.Path(mygo.PathResources); err == nil && p != "" {
 		candidates = append(candidates, filepath.Join(p, sep))
 	}
+	candidates = append(candidates, engineFallbacks()...)
 	for _, dir := range candidates {
-		if _, err := os.Stat(filepath.Join(dir, "ProxyBridgeSvc.exe")); err == nil {
+		if _, err := os.Stat(filepath.Join(dir, engineMarker)); err == nil {
 			return dir
 		}
 	}

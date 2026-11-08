@@ -1,3 +1,5 @@
+//go:build windows
+
 // Asset embedding for the elevated helper. This is the RT_MANIFEST-only
 // subset of MyGo's MIT-licensed cmd/mygo/winres.go, so CI needs no MinGW.
 //

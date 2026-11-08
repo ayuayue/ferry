@@ -214,6 +214,9 @@ export function ConnectionsPage({
   const [q, setQ] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  // The Linux engine does not report which rule a flow matched, so the hit
+  // column shows a dash there instead of claiming "默认".
+  const noRuleIds = (status?.platform || "").startsWith("linux");
   const groups = useMemo(() => groupByProcess(view.flows, events, q), [view.flows, events, q]);
 
   const toggle = (key: string) =>
@@ -523,8 +526,17 @@ export function ConnectionsPage({
                               </div>
                               <div className="mono dim">{f.port}</div>
                               <div>
-                                <span className="chip hit" title={f.ruleKey}>
-                                  {f.ruleKey ? shortKey(f.ruleKey) : f.ruleId ? `#${f.ruleId}` : "默认"}
+                                <span
+                                  className="chip hit"
+                                  title={noRuleIds ? "Linux 引擎不回报命中的规则" : f.ruleKey}
+                                >
+                                  {f.ruleKey
+                                    ? shortKey(f.ruleKey)
+                                    : f.ruleId
+                                      ? `#${f.ruleId}`
+                                      : noRuleIds
+                                        ? "—"
+                                        : "默认"}
                                 </span>
                               </div>
                               <div>
@@ -1435,6 +1447,9 @@ export function SettingsPage({
   onToast: Toast;
 }) {
   const [busy, setBusy] = useState<"" | "install" | "uninstall" | "connect" | "login">("");
+  // Copy differs by platform: Windows elevates through UAC, Linux through
+  // pkexec/sudo, and only Windows has a tray to minimise into.
+  const linux = (status?.platform || "").startsWith("linux");
   const s = status?.service;
   const engineOk = status?.engineReady ?? false;
 
@@ -1548,7 +1563,9 @@ export function SettingsPage({
               )}
             </div>
             <div className="tip">
-              安装需要管理员权限（会弹出 UAC）。官方 ProxyBridge 正在运行时不能安装或启动，请先完全退出官方应用并停止其引擎服务。Ferry 正常使用不需要管理员权限。
+              {linux
+                ? "安装需要管理员授权（弹出系统授权框，或在终端里执行 sudo ferry --install-engine）。官方 ProxyBridge 正在运行时不能安装或启动，请先完全退出官方应用并停止其服务。Ferry 正常使用不需要 root。"
+                : "安装需要管理员权限（会弹出 UAC）。官方 ProxyBridge 正在运行时不能安装或启动，请先完全退出官方应用并停止其引擎服务。Ferry 正常使用不需要管理员权限。"}
             </div>
           </div>
         </div>
@@ -1578,7 +1595,7 @@ export function SettingsPage({
             />
             <Pref
               title="开机自启"
-              desc="随 Windows 登录启动，最小化到托盘"
+              desc={linux ? "随桌面会话启动，启动后直接连接引擎" : "随 Windows 登录启动，最小化到托盘"}
               on={!!status?.autoStart}
               busy={busy === "login"}
               onChange={(v) => act("login", v)}
@@ -1625,10 +1642,12 @@ export function SettingsPage({
             </div>
             <div className="kv">
               <span>引擎</span>
-              <b>ProxyBridge 4.3.0（复用）</b>
+              <b>ProxyBridge {linux ? "4.0.0" : "4.3.0"}（复用）</b>
             </div>
             <div className="tip">
-              内核由 InterceptSuite/ProxyBridge 提供（WinDivert），Ferry 只做壳与规则编排。
+              {linux
+                ? "内核由 InterceptSuite/ProxyBridge 提供（eBPF），以独立的 ferry-engine.service 运行，Ferry 只做壳与规则编排。"
+                : "内核由 InterceptSuite/ProxyBridge 提供（WinDivert），Ferry 只做壳与规则编排。"}
             </div>
           </div>
         </div>

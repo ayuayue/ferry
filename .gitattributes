@@ -1,0 +1,4 @@
+# Linux-facing scripts must stay LF, otherwise a Windows checkout breaks them.
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf

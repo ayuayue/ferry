@@ -1,3 +1,5 @@
+//go:build windows
+
 // Package procattr lists running programs and their icons, so a rule can be
 // aimed at an app by picking it instead of typing its executable name.
 package procattr

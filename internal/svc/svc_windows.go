@@ -1,3 +1,5 @@
+//go:build windows
+
 // Package svc installs and inspects the privileged engine service that Ferry
 // drives. The service is the unmodified ProxyBridge engine: it owns
 // ProxyBridgeCore.dll and WinDivert, and the app talks to it over named pipes.
