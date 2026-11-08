@@ -89,3 +89,14 @@ npm run build         # tsc + vite + go build + NSIS 安装包
 - 只有安装/卸载服务的小助手需要管理员，正常 Ferry 不需要。
 
 ## 许可
+
+Ferry 自有代码以 [MIT](LICENSE) 发布，不替代各第三方组件原有的许可。
+
+随包的 ProxyBridge 4.3.0 为 MIT，原始许可保存在引擎目录的
+`LICENSE.ProxyBridge.txt`；其中的 WinDivert 2.2.2 DLL/驱动单独按照上游的
+LGPL-3.0-or-later 选项再分发，原始许可（含可选的 GPL-2.0 文本）保存在
+`LICENSE.WinDivert.txt`。选择 LGPL 不会把 Ferry 自有源码变成 GPL。
+
+完整来源、版本、对应源码入口与运行时声明随应用放在
+[resources/THIRD_PARTY_NOTICES.md](resources/THIRD_PARTY_NOTICES.md)，
+各依赖的原始许可在 [resources/licenses/](resources/licenses/) 下。
