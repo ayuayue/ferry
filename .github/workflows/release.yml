@@ -49,6 +49,37 @@ jobs:
           $dir = Resolve-Path build/windows-amd64
           Get-ChildItem $dir -Exclude "ferry-setup-*" | Compress-Archive -DestinationPath "build/ferry-portable-windows-amd64.zip" -Force
 
+      - name: Check portable redistribution notices
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $path = Join-Path (Get-Location) "build/ferry-portable-windows-amd64.zip"
+          $zip = [System.IO.Compression.ZipFile]::OpenRead($path)
+          try {
+            $names = $zip.Entries.FullName | ForEach-Object { $_.Replace('\', '/') }
+            $required = @(
+              "Ferry.exe",
+              "engine-setup.exe",
+              "THIRD_PARTY_NOTICES.md",
+              "licenses/Ferry-LICENSE.txt",
+              "licenses/MyGo-LICENSE.txt",
+              "licenses/PureGo-LICENSE.txt",
+              "licenses/Go-LICENSE.txt",
+              "licenses/React-LICENSE.txt",
+              "licenses/Lucide-LICENSE.txt",
+              "licenses/Golang-X-Net-LICENSE.txt",
+              "licenses/Golang-X-Sys-LICENSE.txt",
+              "licenses/Golang-X-Text-LICENSE.txt",
+              "engine/win/amd64/LICENSE.ProxyBridge.txt",
+              "engine/win/amd64/LICENSE.WinDivert.txt"
+            )
+            foreach ($file in $required) {
+              if ($names -notcontains $file) { throw "Portable archive is missing $file" }
+            }
+          } finally {
+            $zip.Dispose()
+          }
+
       - uses: actions/upload-artifact@v4
         with:
           name: ferry-windows-amd64

@@ -100,3 +100,6 @@ LGPL-3.0-or-later 选项再分发，原始许可（含可选的 GPL-2.0 文本�
 完整来源、版本、对应源码入口与运行时声明随应用放在
 [resources/THIRD_PARTY_NOTICES.md](resources/THIRD_PARTY_NOTICES.md)，
 各依赖的原始许可在 [resources/licenses/](resources/licenses/) 下。
+
+便携包中的 `THIRD_PARTY_NOTICES.md` 位于程序根目录，完整许可文本在其同级的
+`licenses/` 目录；引擎许可则位于 `engine/win/amd64/`。上面链接指向它们的可编辑源文件。
