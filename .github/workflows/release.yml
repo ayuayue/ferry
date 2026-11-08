@@ -101,8 +101,22 @@ jobs:
           name: ferry-windows-amd64
           path: release-assets
 
+      - name: Verify release assets
+        shell: bash
+        run: |
+          mapfile -t installers < <(find release-assets -type f -name 'ferry-setup-*-amd64.exe' -print)
+          if [ "${#installers[@]}" -ne 1 ]; then
+            echo "Expected one Windows installer, found ${#installers[@]}" >&2
+            exit 1
+          fi
+          if [ ! -s release-assets/ferry-portable-windows-amd64.zip ]; then
+            echo "Portable Windows archive is missing" >&2
+            exit 1
+          fi
+          printf 'Verified installer: %s\n' "${installers[0]}"
+
       - uses: softprops/action-gh-release@v2
         with:
           files: |
-            release-assets/*.exe
+            release-assets/**/*.exe
             release-assets/*.zip
