@@ -87,6 +87,9 @@ if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
     rm -f /etc/systemd/system/ferry-engine.service
     systemctl daemon-reload >/dev/null 2>&1 || true
   fi
+  # The engine bundle is Ferry's own copy; /etc/proxybridge holds profiles the
+  # user authored, so it is left alone.
+  rm -rf /usr/lib/ferry
 fi
 exit 0
 EOF

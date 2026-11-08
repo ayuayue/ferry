@@ -168,6 +168,12 @@ func Uninstall() error {
 	if _, err := systemctl("daemon-reload"); err != nil {
 		return err
 	}
+	// The engine under /usr/lib/ferry is Ferry's own copy: remove it so an
+	// uninstall really leaves nothing behind. /etc/proxybridge holds profiles
+	// the user authored, so it stays.
+	if err := os.RemoveAll(EngineDir); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	return nil
 }
 
