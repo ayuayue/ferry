@@ -4,9 +4,14 @@ import { call } from "mygo-runtime";
 
 // ---- Types ----
 
+/**
+ * Event is one row of the activity log: a new connection, an engine message or
+ * a line of a proxy test.
+ */
 export interface Event {
   seq: number;
   time: string;
+  /** conn | log | test */
   kind: string;
   process?: string;
   pid?: number;
@@ -18,24 +23,29 @@ export interface Event {
   proxyKey?: string;
 }
 
+/** FlowView is a live connection plus the keys that explain it. */
 export interface FlowView {
   id: number;
   pid: number;
   proxyId: number;
   ruleId: number;
+  /** 0xFFFFFFFF means unknown (UDP) */
   ageMs: number;
   sent: number;
   received: number;
   port: number;
   udp: boolean;
   ipv6: boolean;
+  /** process image name, truncated to 39 bytes */
   name: string;
+  /** domain when the engine resolved one, else the address */
   host: string;
   ruleKey?: string;
   proxyKey?: string;
   proxyName?: string;
 }
 
+/** Process is one running program, deduplicated by executable path. */
 export interface Process {
   pid: number;
   name: string;
@@ -44,8 +54,13 @@ export interface Process {
   system: boolean;
 }
 
-export type Protocol = number;
+/** Protocol is the transport a rule applies to. */
+export type Protocol = 0 | 1 | 2;
 
+/**
+ * Proxy is one upstream proxy as the user configured it. EngineID is the ID
+ * the engine assigned in the current session (0 while not applied).
+ */
 export interface Proxy {
   key: string;
   name: string;
@@ -57,8 +72,13 @@ export interface Proxy {
   sendDomain: boolean;
 }
 
-export type ProxyType = number;
+/** ProxyType selects the upstream protocol of a proxy configuration. */
+export type ProxyType = 0 | 1;
 
+/**
+ * Rule is one entry of the ordered rule list. The first enabled rule that
+ * matches a new connection wins; no match means direct.
+ */
 export interface Rule {
   key: string;
   process: string;
@@ -73,9 +93,15 @@ export interface Rule {
   note?: string;
 }
 
-export type RuleAction = number;
+/** RuleAction is what happens to connections a rule matches. */
+export type RuleAction = 0 | 1 | 2;
 
+/** RuleOpts is how a log row becomes a rule. */
 export interface RuleOpts {
+  /**
+   * Scope is "host" (this destination), "process" (everything this app
+   * connects to) or "process-host" (this app to any host, this port).
+   */
   scope: string;
   action: RuleAction;
   proxyKey: string;
@@ -84,6 +110,7 @@ export interface RuleOpts {
   moveToTop: boolean;
 }
 
+/** RuleResult reports what one right-click action did. */
 export interface RuleResult {
   flowId: number;
   ruleKey: string;
@@ -94,6 +121,10 @@ export interface RuleResult {
   summary: string;
 }
 
+/**
+ * RuleTarget is what the page sends back for a right-clicked row: a live flow
+ * or a connection-log line.
+ */
 export interface RuleTarget {
   flowId?: number;
   process: string;
@@ -102,9 +133,14 @@ export interface RuleTarget {
   port: number;
   udp: boolean;
   proxyKey?: string;
+  /**
+   * MatchedRuleKey is the rule that let this connection through, so the new
+   * rule can be inserted right above it.
+   */
   matchedRuleKey?: string;
 }
 
+/** Stats are session counters for the status bar. */
 export interface Stats {
   events: number;
   flows: number;
@@ -113,6 +149,7 @@ export interface Stats {
   replays: number;
 }
 
+/** Status describes the service as the SCM sees it. */
 export interface Status {
   installed: boolean;
   running: boolean;
@@ -134,6 +171,7 @@ export interface StatusView {
   platform: string;
 }
 
+/** TestRun is the state of the last connectivity test. */
 export interface TestRun {
   proxyKey: string;
   target: string;
@@ -143,6 +181,7 @@ export interface TestRun {
   started: string;
 }
 
+/** UIState is what the window needs to come back the way the user left it. */
 export interface UIState {
   page: string;
   theme: string;
@@ -150,6 +189,7 @@ export interface UIState {
   compact: boolean;
 }
 
+/** View is everything the page needs in one poll. */
 export interface View {
   mode: string;
   connected: boolean;

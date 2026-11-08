@@ -8,7 +8,7 @@ import (
 
 	"golang.org/x/sys/windows/registry"
 
-	"pbdeck/internal/procattr"
+	"github.com/ayuayue/ferry/internal/procattr"
 )
 
 const officialInstallKey = `SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\ProxyBridge`

@@ -1,4 +1,4 @@
-module pbdeck
+module github.com/ayuayue/ferry
 
 go 1.27.3
 

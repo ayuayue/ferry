@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"pbdeck/internal/pbproto"
+	"github.com/ayuayue/ferry/internal/pbproto"
 )
 
 // Proxy is one upstream proxy as the user configured it. EngineID is the ID

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"pbdeck/internal/svc"
+	"github.com/ayuayue/ferry/internal/svc"
 )
 
 func main() {

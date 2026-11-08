@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"pbdeck/internal/model"
-	"pbdeck/internal/pbproto"
-	"pbdeck/internal/procattr"
+	"github.com/ayuayue/ferry/internal/model"
+	"github.com/ayuayue/ferry/internal/pbproto"
+	"github.com/ayuayue/ferry/internal/procattr"
 )
 
 // Modes reported to the UI.

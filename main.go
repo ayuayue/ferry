@@ -12,10 +12,10 @@ import (
 
 	"github.com/egoist/mygo"
 
-	"pbdeck/internal/model"
-	"pbdeck/internal/procattr"
-	"pbdeck/internal/session"
-	"pbdeck/internal/svc"
+	"github.com/ayuayue/ferry/internal/model"
+	"github.com/ayuayue/ferry/internal/procattr"
+	"github.com/ayuayue/ferry/internal/session"
+	"github.com/ayuayue/ferry/internal/svc"
 )
 
 const version = "0.1.0"

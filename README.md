@@ -1,7 +1,11 @@
 # Ferry
 
-> 渡船：把流量从这一岸送到另一岸。源码目录与 Go 模块名仍为 pbdeck；可执行文件、
-> 安装包与数据目录已改为 Ferry，旧版 PBDeck 的配置会在首次启动时自动迁移。
+> 渡船：把流量从这一岸送到另一岸。源码目录与 Go 模块统一使用 Ferry 命名，
+> 旧版 PBDeck 的配置会在首次启动时自动迁移。
+
+[![Windows build](https://github.com/ayuayue/ferry/actions/workflows/release.yml/badge.svg)](https://github.com/ayuayue/ferry/actions/workflows/release.yml)
+
+![Ferry 连接管理界面](docs/assets/ferry-overview.png)
 
 Windows 上的代理拦截器外壳：复用 [InterceptSuite/ProxyBridge](https://github.com/InterceptSuite/ProxyBridge)
 4.3.0 的内核（WinDivert + `ProxyBridgeCore.dll`），用

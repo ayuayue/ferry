@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"pbdeck/internal/procattr"
+	"github.com/ayuayue/ferry/internal/procattr"
 )
 
 func TestOfficialRunningServiceBlocks(t *testing.T) {
