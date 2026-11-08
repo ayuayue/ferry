@@ -4,7 +4,7 @@ export default defineConfig({
   name: "Ferry",
   identifier: "app.ferry.desktop",
   windows: { installerInclude: "packaging/installer.nsh" },
-  version: "1.1.0",
+  version: "1.1.1",
   // `mygo dev` runs devCommand and loads devUrl; `mygo build` runs
   // buildCommand and embeds frontendDist into the app.
   devUrl: "http://localhost:5317",

@@ -16,7 +16,7 @@ import (
 	"github.com/ayuayue/ferry/internal/svc"
 )
 
-const version = "1.1.0"
+const version = "1.1.1"
 
 //go:embed resources/icon.png
 var appIcon []byte
