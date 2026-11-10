@@ -4,6 +4,7 @@
 > 旧版 PBDeck 的配置会在首次启动时自动迁移。
 
 [![Release](https://github.com/ayuayue/ferry/actions/workflows/release.yml/badge.svg)](https://github.com/ayuayue/ferry/actions/workflows/release.yml)
+[![Listed on Awesome MyGo](https://awesomemygo.dev/badge.svg)](https://awesomemygo.dev/apps/ferry)
 
 ![Ferry 连接管理界面](docs/assets/ferry-overview.png)
 
